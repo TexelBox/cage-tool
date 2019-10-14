@@ -328,3 +328,20 @@ ASALocalRun/
 
 # MFractors (Xamarin productivity tool) working folder 
 .mfractor/
+
+# CUSTOM RULES:
+!589_3DBoilerplate_VS/lib/**
+!589_3DBoilerplate_VS/models/**
+
+# Preserving the build dirs (but, only the dlls)
+!589_3DBoilerplate_VS/Win32/*
+589_3DBoilerplate_VS/Win32/Debug/*
+!589_3DBoilerplate_VS/Win32/Debug/*.dll
+589_3DBoilerplate_VS/Win32/Release/*
+!589_3DBoilerplate_VS/Win32/Release/*.dll
+!589_3DBoilerplate_VS/x64/
+!589_3DBoilerplate_VS/x64/*
+589_3DBoilerplate_VS/x64/Debug/*
+!589_3DBoilerplate_VS/x64/Debug/*.dll
+589_3DBoilerplate_VS/x64/Release/*
+!589_3DBoilerplate_VS/x64/Release/*.dll

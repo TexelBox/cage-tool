@@ -26,3 +26,6 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - ...
 - closer to release, decide on a LICENSE
 - port to macOS?
+
+### REFERENCES
+- boilerplate provided from https://pages.cpsc.ucalgary.ca/~mmactavi/589/
