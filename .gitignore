@@ -330,18 +330,18 @@ ASALocalRun/
 .mfractor/
 
 # CUSTOM RULES:
-!589_3DBoilerplate_VS/lib/**
-!589_3DBoilerplate_VS/models/**
+!cage-tool/lib/**
+!cage-tool/models/**
 
 # Preserving the build dirs (but, only the dlls)
-!589_3DBoilerplate_VS/Win32/*
-589_3DBoilerplate_VS/Win32/Debug/*
-!589_3DBoilerplate_VS/Win32/Debug/*.dll
-589_3DBoilerplate_VS/Win32/Release/*
-!589_3DBoilerplate_VS/Win32/Release/*.dll
-!589_3DBoilerplate_VS/x64/
-!589_3DBoilerplate_VS/x64/*
-589_3DBoilerplate_VS/x64/Debug/*
-!589_3DBoilerplate_VS/x64/Debug/*.dll
-589_3DBoilerplate_VS/x64/Release/*
-!589_3DBoilerplate_VS/x64/Release/*.dll
+!cage-tool/Win32/*
+cage-tool/Win32/Debug/*
+!cage-tool/Win32/Debug/*.dll
+cage-tool/Win32/Release/*
+!cage-tool/Win32/Release/*.dll
+!cage-tool/x64/
+!cage-tool/x64/*
+cage-tool/x64/Debug/*
+!cage-tool/x64/Debug/*.dll
+cage-tool/x64/Release/*
+!cage-tool/x64/Release/*.dll
