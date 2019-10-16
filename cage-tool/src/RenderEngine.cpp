@@ -40,7 +40,8 @@ void RenderEngine::render(const std::vector<MeshObject*>& objects) {
 		glUniform3fv(glGetUniformLocation(mainProgram, "lightPos"), 1, glm::value_ptr(lightPos));
 		glUniform1i(glGetUniformLocation(mainProgram, "hasTexture"), o->hasTexture);
 
-		glDrawElements(GL_TRIANGLES, o->drawFaces.size(), GL_UNSIGNED_SHORT, (void*)0);
+		//NOTE: currently, this program assumes we are working with pure tri-meshes
+		glDrawElements(GL_TRIANGLES, o->drawFaces.size(), GL_UNSIGNED_INT, (void*)0);
 		glBindVertexArray(0);
 		Texture::unbind2DTexture();
 	}
@@ -66,7 +67,7 @@ void RenderEngine::assignBuffers(MeshObject& object)
 	std::vector<glm::vec3>& vertices = object.drawVerts;
 	std::vector<glm::vec3>& normals = object.normals;
 	std::vector<glm::vec2>& uvs = object.uvs;
-	std::vector<GLushort>& faces = object.drawFaces;
+	std::vector<GLuint>& faces = object.drawFaces;
 
 	// Bind attribute array for triangles
 	glGenVertexArrays(1, &object.vao);
@@ -98,7 +99,7 @@ void RenderEngine::assignBuffers(MeshObject& object)
 	// Face buffer
 	glGenBuffers(1, &object.indexBuffer);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, object.indexBuffer);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLushort)*faces.size(), faces.data(), GL_STATIC_DRAW);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint)*faces.size(), faces.data(), GL_STATIC_DRAW);
 
 	glBindVertexArray(0);
 }

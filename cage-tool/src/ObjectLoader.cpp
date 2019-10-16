@@ -6,12 +6,12 @@ MeshObject* ObjectLoader::createMeshObject(std::string modelFile) {
 	std::vector<glm::vec3> verts;
 	std::vector<glm::vec2> uvs;
 	std::vector<glm::vec3> normals;
-	std::vector<GLushort> faces;
+	std::vector<GLuint> faces;
 	std::vector<glm::vec3> raw_verts;
 
 	ObjectLoader::loadOBJ(modelFile.c_str(), verts, uvs, normals, faces, raw_verts);
 
-	std::vector<unsigned short> indices;
+	std::vector<unsigned int> indices;
 	std::vector<glm::vec3> indexed_vertices;
 	std::vector<glm::vec2> indexed_uvs;
 	std::vector<glm::vec3> indexed_normals;
@@ -31,10 +31,10 @@ MeshObject* ObjectLoader::createMeshObject(std::string modelFile) {
 
 bool ObjectLoader::getSimilarVertexIndex_fast(
 	PackedVertex & packed,
-	std::map<PackedVertex, unsigned short> & VertexToOutIndex,
-	unsigned short & result)
+	std::map<PackedVertex, unsigned int> & VertexToOutIndex,
+	unsigned int & result)
 {
-	std::map<PackedVertex, unsigned short>::iterator it = VertexToOutIndex.find(packed);
+	std::map<PackedVertex, unsigned int>::iterator it = VertexToOutIndex.find(packed);
 	if (it == VertexToOutIndex.end()) {
 		return false;
 	}
@@ -49,12 +49,12 @@ void ObjectLoader::indexVBO(
 	std::vector<glm::vec2> & in_uvs,
 	std::vector<glm::vec3> & in_normals,
 
-	std::vector<unsigned short> & out_indices,
+	std::vector<unsigned int> & out_indices,
 	std::vector<glm::vec3> & out_vertices,
 	std::vector<glm::vec2> & out_uvs,
 	std::vector<glm::vec3> & out_normals)
 {
-	std::map<PackedVertex, unsigned short> VertexToOutIndex;
+	std::map<PackedVertex, unsigned int> VertexToOutIndex;
 
 	// For each input vertex
 	for (unsigned int i = 0; i < in_vertices.size(); i++) {
@@ -67,7 +67,7 @@ void ObjectLoader::indexVBO(
 			packed = { in_vertices[i], glm::vec2(), in_normals[i] };
 
 		// Try to find a similar vertex in out_XXXX
-		unsigned short index;
+		unsigned int index;
 		bool found = getSimilarVertexIndex_fast(packed, VertexToOutIndex, index);
 
 		if (found) { // A similar vertex is already in the VBO, use it instead !
@@ -80,7 +80,7 @@ void ObjectLoader::indexVBO(
 				out_uvs.push_back(in_uvs[i]);
 
 			out_normals.push_back(in_normals[i]);
-			unsigned short newindex = (unsigned short)out_vertices.size() - 1;
+			unsigned int newindex = (unsigned int)out_vertices.size() - 1;
 			out_indices.push_back(newindex);
 			VertexToOutIndex[packed] = newindex;
 		}
@@ -92,12 +92,12 @@ bool ObjectLoader::loadOBJ(
 	std::vector<glm::vec3> & out_vertices,
 	std::vector<glm::vec2> & out_uvs,
 	std::vector<glm::vec3> & out_normals,
-	std::vector<GLushort> & out_faces,
+	std::vector<GLuint> & out_faces,
 	std::vector<glm::vec3> & raw_verts)
 {
 	printf("Loading OBJ file %s...\n", path);
 
-	std::vector<unsigned short> vertexIndices, uvIndices, normalIndices;
+	std::vector<unsigned int> vertexIndices, uvIndices, normalIndices;
 	std::vector<glm::vec3> temp_vertices;
 	std::vector<glm::vec2> temp_uvs;
 	std::vector<glm::vec3> temp_normals;
@@ -142,11 +142,12 @@ bool ObjectLoader::loadOBJ(
 			std::string vertex1, vertex2, vertex3;
 			unsigned int vertexIndex[3], uvIndex[3], normalIndex[3];
 
+			//NOTE: this code currently fails when trying to load files without normals. It should be extended to handle all valid OBJ specifications or you should document any assumptions
 			if (hasTexture) {
-				fscanf(file, "%d/%d/%d %d/%d/%d %d/%d/%d\n", &vertexIndex[0], &uvIndex[0], &normalIndex[0], &vertexIndex[1], &uvIndex[1], &normalIndex[1], &vertexIndex[2], &uvIndex[2], &normalIndex[2]);
+				fscanf(file, "%u/%u/%u %u/%u/%u %u/%u/%u\n", &vertexIndex[0], &uvIndex[0], &normalIndex[0], &vertexIndex[1], &uvIndex[1], &normalIndex[1], &vertexIndex[2], &uvIndex[2], &normalIndex[2]);
 			}
 			else {
-				fscanf(file, "%d//%d %d//%d %d//%d\n", &vertexIndex[0], &normalIndex[0], &vertexIndex[1], &normalIndex[1], &vertexIndex[2], &normalIndex[2]);
+				fscanf(file, "%u//%u %u//%u %u//%u\n", &vertexIndex[0], &normalIndex[0], &vertexIndex[1], &normalIndex[1], &vertexIndex[2], &normalIndex[2]);
 			}
 
 			vertexIndices.push_back(vertexIndex[0]);

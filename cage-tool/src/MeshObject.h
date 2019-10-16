@@ -19,8 +19,8 @@ public:
 	std::vector<glm::vec3> drawVerts;
 	std::vector<glm::vec3> normals;
 	std::vector<glm::vec2> uvs;
-	std::vector<GLushort> faces;
-	std::vector<GLushort> drawFaces;
+	std::vector<GLuint> faces;
+	std::vector<GLuint> drawFaces;
 
 	GLuint vao;
 	GLuint vertexBuffer;

@@ -27,13 +27,13 @@ public:
 private:
 	static bool getSimilarVertexIndex_fast(
 		PackedVertex & packed,
-		std::map<PackedVertex, unsigned short> & VertexToOutIndex,
-		unsigned short & result);
+		std::map<PackedVertex, unsigned int> & VertexToOutIndex,
+		unsigned int & result);
 	static void indexVBO(
 		std::vector<glm::vec3> & in_vertices,
 		std::vector<glm::vec2> & in_uvs,
 		std::vector<glm::vec3> & in_normals,
-		std::vector<unsigned short> & out_indices,
+		std::vector<unsigned int> & out_indices,
 		std::vector<glm::vec3> & out_vertices,
 		std::vector<glm::vec2> & out_uvs,
 		std::vector<glm::vec3> & out_normals);
@@ -42,6 +42,6 @@ private:
 		std::vector<glm::vec3> & out_vertices,
 		std::vector<glm::vec2> & out_uvs,
 		std::vector<glm::vec3> & out_normals,
-		std::vector<GLushort> &out_faces,
+		std::vector<GLuint> &out_faces,
 		std::vector<glm::vec3> & raw_verts);
 };
