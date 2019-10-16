@@ -2,8 +2,9 @@
 C++/OpenGL tool for cage-based deformation, including functionality for cage generation. Originally developed as a fall 2019 term project for CPSC589 @ University of Calgary.
 
 ### TODO
-- import boilerplate, fix any build issues
-- fix the model size limit issues
+- ~import boilerplate, fix any build issues~
+- ~update any needed project settings~
+- ~fix the model size limit issues~
 - replace any raw pointers
 - fix the OBJ loader to not just crash when given different valid variations of OBJ files (e.g. missing normals) that it doesn't like
 - improve the outline of the codebase to better fit our project:
