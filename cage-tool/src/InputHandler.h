@@ -11,17 +11,17 @@
 class InputHandler {
 
 public:
-	static void setUp(RenderEngine* renderEngine, Camera* camera);
+	static void setUp(std::shared_ptr<RenderEngine> renderEngine, std::shared_ptr<Camera> camera);
 
-	static void key(GLFWwindow* window, int key, int scancode, int action, int mods);
-	static void mouse(GLFWwindow* window, int button, int action, int mods);
-	static void motion(GLFWwindow* window, double x, double y);
-	static void scroll(GLFWwindow* window, double x, double y);
-	static void reshape(GLFWwindow* window, int width, int height);
+	static void key(GLFWwindow *window, int key, int scancode, int action, int mods);
+	static void mouse(GLFWwindow *window, int button, int action, int mods);
+	static void motion(GLFWwindow *window, double x, double y);
+	static void scroll(GLFWwindow *window, double x, double y);
+	static void reshape(GLFWwindow *window, int width, int height);
 
 private:
-	static RenderEngine* renderEngine;
-	static Camera* camera;
+	static std::shared_ptr<RenderEngine> renderEngine;
+	static std::shared_ptr<Camera> camera;
 
 	static int mouseOldX;
 	static int mouseOldY;

@@ -1,18 +1,18 @@
 #include "InputHandler.h"
 
-RenderEngine* InputHandler::renderEngine;
-Camera* InputHandler::camera;
+std::shared_ptr<RenderEngine> InputHandler::renderEngine = nullptr;
+std::shared_ptr<Camera> InputHandler::camera = nullptr;
 int InputHandler::mouseOldX;
 int InputHandler::mouseOldY;
 
 // Must be called before processing any GLFW events
-void InputHandler::setUp(RenderEngine* renderEngine, Camera* camera) {
+void InputHandler::setUp(std::shared_ptr<RenderEngine> renderEngine, std::shared_ptr<Camera> camera) {
 	InputHandler::renderEngine = renderEngine;
 	InputHandler::camera = camera;
 }
 
 // Callback for key presses
-void InputHandler::key(GLFWwindow* window, int key, int scancode, int action, int mods) 
+void InputHandler::key(GLFWwindow *window, int key, int scancode, int action, int mods) 
 {
 	if (action == GLFW_PRESS || action == GLFW_REPEAT) { // Key press, or press & hold
 		// Light controls
@@ -43,7 +43,7 @@ void InputHandler::key(GLFWwindow* window, int key, int scancode, int action, in
 }
 
 // Callback for mouse button presses
-void InputHandler::mouse(GLFWwindow* window, int button, int action, int mods) {
+void InputHandler::mouse(GLFWwindow *window, int button, int action, int mods) {
 	if (action == GLFW_PRESS) {
 		double x, y;
 		glfwGetCursorPos(window, &x, &y);
@@ -53,7 +53,7 @@ void InputHandler::mouse(GLFWwindow* window, int button, int action, int mods) {
 }
 
 // Callback for mouse motion
-void InputHandler::motion(GLFWwindow* window, double x, double y) {
+void InputHandler::motion(GLFWwindow *window, double x, double y) {
 	double dx, dy;
 	dx = (x - mouseOldX);
 	dy = (y - mouseOldY);
@@ -68,13 +68,13 @@ void InputHandler::motion(GLFWwindow* window, double x, double y) {
 }
 
 // Callback for mouse scroll
-void InputHandler::scroll(GLFWwindow* window, double x, double y) {
+void InputHandler::scroll(GLFWwindow *window, double x, double y) {
 	double dy;
 	dy = (x - y);
 	camera->updatePosition(glm::vec3(0.0, 0.0, dy * 0.1));
 }
 
 // Callback for window reshape/resize
-void InputHandler::reshape(GLFWwindow* window, int width, int height) {
+void InputHandler::reshape(GLFWwindow *window, int width, int height) {
 	renderEngine->setWindowSize(width, height);
 }

@@ -2,7 +2,7 @@
 #include <iostream>
 #include "Texture.h"
 
-GLuint Texture::create1DTexture(std::vector<GLubyte>& rgbaValues) {
+GLuint Texture::create1DTexture(std::vector<GLubyte> &rgbaValues) {
     GLuint textureID;
 
     glGenTextures(1, &textureID);
@@ -18,7 +18,7 @@ GLuint Texture::create1DTexture(std::vector<GLubyte>& rgbaValues) {
     return textureID;
 }
 
-GLuint Texture::create2DTexture(std::vector<unsigned char>& image, unsigned int width, unsigned int height) {
+GLuint Texture::create2DTexture(std::vector<unsigned char> &image, unsigned int width, unsigned int height) {
 	GLuint textureID;
 
 	glGenTextures(1, &textureID);

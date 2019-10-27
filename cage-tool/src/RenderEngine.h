@@ -18,11 +18,11 @@
 class RenderEngine {
 
 public:
-	RenderEngine(GLFWwindow* window, Camera* camera);
+	RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera);
 
-	void render(const std::vector<MeshObject*>& objects);
+	void render(std::vector<std::shared_ptr<MeshObject>> const& objects);
 	void renderLight();
-	void assignBuffers(MeshObject& object);
+	void assignBuffers(MeshObject &object);
 	void setWindowSize(int width, int height);
 
 	void updateLightPos(glm::vec3 add);
@@ -30,8 +30,8 @@ public:
 	unsigned int loadTexture(std::string filename);
 
 private:
-	GLFWwindow* window;
-	Camera* camera;
+	GLFWwindow *window = nullptr;
+	std::shared_ptr<Camera> camera = nullptr;
 
 	GLuint mainProgram;
 	GLuint lightProgram;

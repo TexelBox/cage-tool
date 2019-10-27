@@ -1,8 +1,8 @@
 #include "ObjectLoader.h"
 
 // Create MeshObject from obj file
-MeshObject* ObjectLoader::createMeshObject(std::string modelFile) {
-	MeshObject * m = new MeshObject();
+std::shared_ptr<MeshObject> ObjectLoader::createMeshObject(std::string modelFile) {
+	std::shared_ptr<MeshObject> m = std::make_shared<MeshObject>();
 	std::vector<glm::vec3> verts;
 	std::vector<glm::vec2> uvs;
 	std::vector<glm::vec3> normals;
@@ -23,19 +23,18 @@ MeshObject* ObjectLoader::createMeshObject(std::string modelFile) {
 	m->drawFaces = indices;
 	m->faces = faces;
 
-	if (indexed_uvs.size() > 0)
-		m->hasTexture = true;
+	if (indexed_uvs.size() > 0) m->hasTexture = true;
 
 	return m;
 }
 
 bool ObjectLoader::getSimilarVertexIndex_fast(
-	PackedVertex & packed,
-	std::map<PackedVertex, unsigned int> & VertexToOutIndex,
-	unsigned int & result)
+	PackedVertex &packed,
+	std::map<PackedVertex, unsigned int> &VertexToOutIndex,
+	unsigned int &result)
 {
 	std::map<PackedVertex, unsigned int>::iterator it = VertexToOutIndex.find(packed);
-	if (it == VertexToOutIndex.end()) {
+	if (VertexToOutIndex.end() == it) {
 		return false;
 	}
 	else {
@@ -45,14 +44,14 @@ bool ObjectLoader::getSimilarVertexIndex_fast(
 }
 
 void ObjectLoader::indexVBO(
-	std::vector<glm::vec3> & in_vertices,
-	std::vector<glm::vec2> & in_uvs,
-	std::vector<glm::vec3> & in_normals,
+	std::vector<glm::vec3> &in_vertices,
+	std::vector<glm::vec2> &in_uvs,
+	std::vector<glm::vec3> &in_normals,
 
-	std::vector<unsigned int> & out_indices,
-	std::vector<glm::vec3> & out_vertices,
-	std::vector<glm::vec2> & out_uvs,
-	std::vector<glm::vec3> & out_normals)
+	std::vector<unsigned int> &out_indices,
+	std::vector<glm::vec3> &out_vertices,
+	std::vector<glm::vec2> &out_uvs,
+	std::vector<glm::vec3> &out_normals)
 {
 	std::map<PackedVertex, unsigned int> VertexToOutIndex;
 
@@ -88,12 +87,12 @@ void ObjectLoader::indexVBO(
 }
 
 bool ObjectLoader::loadOBJ(
-	const char * path,
-	std::vector<glm::vec3> & out_vertices,
-	std::vector<glm::vec2> & out_uvs,
-	std::vector<glm::vec3> & out_normals,
-	std::vector<GLuint> & out_faces,
-	std::vector<glm::vec3> & raw_verts)
+	char const* path,
+	std::vector<glm::vec3> &out_vertices,
+	std::vector<glm::vec2> &out_uvs,
+	std::vector<glm::vec3> &out_normals,
+	std::vector<GLuint> &out_faces,
+	std::vector<glm::vec3> &raw_verts)
 {
 	printf("Loading OBJ file %s...\n", path);
 
@@ -102,11 +101,11 @@ bool ObjectLoader::loadOBJ(
 	std::vector<glm::vec2> temp_uvs;
 	std::vector<glm::vec3> temp_normals;
 
-	FILE * file;
+	FILE *file = NULL;
 	file = fopen(path, "r");
-	if (file == NULL) {
+	if (NULL == file) {
 		printf("Cannot open file. Check path.");
-		getchar();
+		getchar(); // block until user enters char
 		return false;
 	}
 
@@ -116,29 +115,28 @@ bool ObjectLoader::loadOBJ(
 		char lineHeader[128];
 		// read the first word of the line
 		int res = fscanf(file, "%s", lineHeader);
-		if (res == EOF)
-			break; // EOF = End Of File. Quit the loop.
+		if (EOF == res) break; // EOF = End Of File. Quit the loop.
 
 		// else : parse lineHeader
 
-		if (strcmp(lineHeader, "v") == 0) {
+		if (0 == strcmp(lineHeader, "v")) {
 			glm::vec3 vertex;
 			fscanf(file, "%f %f %f\n", &vertex.x, &vertex.y, &vertex.z);
 			temp_vertices.push_back(vertex);
 		}
-		else if (strcmp(lineHeader, "vt") == 0) {
+		else if (0 == strcmp(lineHeader, "vt")) {
 			hasTexture = true;
 			glm::vec2 uv;
 			fscanf(file, "%f %f\n", &uv.x, &uv.y);
 			uv.y = -uv.y;
 			temp_uvs.push_back(uv);
 		}
-		else if (strcmp(lineHeader, "vn") == 0) {
+		else if (0 == strcmp(lineHeader, "vn")) {
 			glm::vec3 normal;
 			fscanf(file, "%f %f %f\n", &normal.x, &normal.y, &normal.z);
 			temp_normals.push_back(normal);
 		}
-		else if (strcmp(lineHeader, "f") == 0) {
+		else if (0 == strcmp(lineHeader, "f")) {
 			std::string vertex1, vertex2, vertex3;
 			unsigned int vertexIndex[3], uvIndex[3], normalIndex[3];
 
@@ -201,5 +199,6 @@ bool ObjectLoader::loadOBJ(
 
 	}
 	fclose(file);
+	file = NULL;
 	return true;
 }

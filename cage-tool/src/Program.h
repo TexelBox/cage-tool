@@ -23,23 +23,19 @@ public:
 	void start();
 
 private:
-	GLFWwindow* window;
-	RenderEngine* renderEngine;
-	Camera* camera;
+	GLFWwindow *window = nullptr;
+	std::shared_ptr<RenderEngine> renderEngine = nullptr;
+	std::shared_ptr<Camera> camera = nullptr;
 
-	std::vector<MeshObject*> meshObjects;
+	std::vector<std::shared_ptr<MeshObject>> meshObjects;
 
-	bool show_test_window;
-	ImVec4 clear_color;
+	ImVec4 clearColor;
 
-	//Geometry testObject;
-
-	static void error(int error, const char* description);
+	static void error(int error, char const* description);
 	void setupWindow();
 	void mainLoop();
 	void drawUI();
 
 	void createTestMeshObject();
 
-	int counter;
 };

@@ -1,11 +1,11 @@
 #include "RenderEngine.h"
 
-RenderEngine::RenderEngine(GLFWwindow* window, Camera* camera) : window(window), camera(camera) {
+RenderEngine::RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera) : window(window), camera(camera) {
 	int width, height;
 	glfwGetWindowSize(window, &width, &height);
 
 	mainProgram = ShaderTools::compileShaders("shaders/main.vert", "shaders/main.frag");
-	lightProgram = ShaderTools::compileShaders("./shaders/light.vert", "./shaders/light.frag");
+	lightProgram = ShaderTools::compileShaders("shaders/light.vert", "shaders/light.frag");
 
 	lightPos = glm::vec3(0.0, 2.0, 0.0);
 	projection = glm::perspective(45.0f, (float)width / height, 0.01f, 100.0f);
@@ -14,11 +14,11 @@ RenderEngine::RenderEngine(GLFWwindow* window, Camera* camera) : window(window),
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_LINE_SMOOTH);
 	glPointSize(30.0f);
-	glClearColor(1.0f, 1.0f, 1.0f, 0.0);
+	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 // Called to render provided objects under view matrix
-void RenderEngine::render(const std::vector<MeshObject*>& objects) {
+void RenderEngine::render(std::vector<std::shared_ptr<MeshObject>> const& objects) {
 
 	glm::mat4 view = camera->getLookAt();
 	glm::mat4 model = glm::mat4();
@@ -29,7 +29,7 @@ void RenderEngine::render(const std::vector<MeshObject*>& objects) {
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glUseProgram(mainProgram);
 
-	for (const MeshObject* o : objects) {
+	for (std::shared_ptr<MeshObject const> o : objects) {
 		glBindVertexArray(o->vao);
 
 		Texture::bind2DTexture(mainProgram, o->textureID, std::string("image"));
@@ -39,6 +39,9 @@ void RenderEngine::render(const std::vector<MeshObject*>& objects) {
 		glUniformMatrix4fv(glGetUniformLocation(mainProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 		glUniform3fv(glGetUniformLocation(mainProgram, "lightPos"), 1, glm::value_ptr(lightPos));
 		glUniform1i(glGetUniformLocation(mainProgram, "hasTexture"), o->hasTexture);
+
+		// POINT, LINE or FILL...
+		glPolygonMode(GL_FRONT_AND_BACK, o->m_polygonMode);
 
 		//NOTE: currently, this program assumes we are working with pure tri-meshes
 		glDrawElements(GL_TRIANGLES, o->drawFaces.size(), GL_UNSIGNED_INT, (void*)0);
@@ -62,12 +65,12 @@ void RenderEngine::renderLight() {
 }
 
 // Assigns and binds buffers for a Mesh Object - vertices, normals, UV coordinates, faces
-void RenderEngine::assignBuffers(MeshObject& object) 
+void RenderEngine::assignBuffers(MeshObject &object) 
 {
-	std::vector<glm::vec3>& vertices = object.drawVerts;
-	std::vector<glm::vec3>& normals = object.normals;
-	std::vector<glm::vec2>& uvs = object.uvs;
-	std::vector<GLuint>& faces = object.drawFaces;
+	std::vector<glm::vec3> &vertices = object.drawVerts;
+	std::vector<glm::vec3> &normals = object.normals;
+	std::vector<glm::vec2> &uvs = object.uvs;
+	std::vector<GLuint> &faces = object.drawFaces;
 
 	// Bind attribute array for triangles
 	glGenVertexArrays(1, &object.vao);
