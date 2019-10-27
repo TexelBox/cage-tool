@@ -5,7 +5,7 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - ~import boilerplate, fix any build issues~
 - ~update any needed project settings~
 - ~fix the model size limit issues~
-- replace any raw pointers
+- ~replace any unnecessary raw pointers~
 - fix the OBJ loader to not just crash when given different valid variations of OBJ files (e.g. missing normals) that it doesn't like
 - improve the outline of the codebase to better fit our project:
     - easy referencing for MODEL + CAGE, especially any necessary data to compute cage vertex weights
@@ -30,3 +30,4 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 
 ### REFERENCES
 - boilerplate provided from https://pages.cpsc.ucalgary.ca/~mmactavi/589/
+- inspiration from https://github.com/cordafab/Cagelab2018
