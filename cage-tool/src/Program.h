@@ -38,4 +38,9 @@ private:
 
 	void createTestMeshObject();
 
+
+	std::shared_ptr<MeshObject> m_model = nullptr;
+	std::shared_ptr<MeshObject> m_cage = nullptr;
+
+
 };

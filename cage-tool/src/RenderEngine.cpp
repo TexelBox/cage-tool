@@ -8,7 +8,8 @@ RenderEngine::RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera) :
 	lightProgram = ShaderTools::compileShaders("shaders/light.vert", "shaders/light.frag");
 
 	lightPos = glm::vec3(0.0, 2.0, 0.0);
-	projection = glm::perspective(45.0f, (float)width / height, 0.01f, 100.0f);
+	//projection = glm::perspective(45.0f, (float)width / height, 0.01f, 100.0f);
+	projection = glm::perspective(45.0f, (float)width / height, 0.01f, 1000.0f);
 
 	// Set OpenGL state
 	glEnable(GL_DEPTH_TEST);
@@ -20,9 +21,7 @@ RenderEngine::RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera) :
 // Called to render provided objects under view matrix
 void RenderEngine::render(std::vector<std::shared_ptr<MeshObject>> const& objects) {
 
-	glm::mat4 view = camera->getLookAt();
-	glm::mat4 model = glm::mat4();
-	glm::mat4 modelView = view * model;
+	glm::mat4 const view = camera->getLookAt();
 
 	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 	glEnable(GL_BLEND);
@@ -34,7 +33,9 @@ void RenderEngine::render(std::vector<std::shared_ptr<MeshObject>> const& object
 
 		Texture::bind2DTexture(mainProgram, o->textureID, std::string("image"));
 
-		//glm::mat4 modelView = view * o->modelMatrix;
+		glm::mat4 const model = o->getModel();
+		glm::mat4 const modelView = view * model;
+
 		glUniformMatrix4fv(glGetUniformLocation(mainProgram, "modelView"), 1, GL_FALSE, glm::value_ptr(modelView));
 		glUniformMatrix4fv(glGetUniformLocation(mainProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 		glUniform3fv(glGetUniformLocation(mainProgram, "lightPos"), 1, glm::value_ptr(lightPos));
@@ -55,7 +56,7 @@ void RenderEngine::render(std::vector<std::shared_ptr<MeshObject>> const& object
 void RenderEngine::renderLight() {
 	glUseProgram(lightProgram);
 
-	glm::mat4 view = camera->getLookAt();
+	glm::mat4 const view = camera->getLookAt();
 	// Uniforms
 	glUniformMatrix4fv(glGetUniformLocation(lightProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
 	glUniformMatrix4fv(glGetUniformLocation(lightProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
