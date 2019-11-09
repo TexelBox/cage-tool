@@ -16,6 +16,16 @@
 #include "ObjectLoader.h"
 #include "RenderEngine.h"
 
+
+//NOTE: even if we don't implement HC or GC, this is future proof
+enum CoordinateTypes {
+	MVC = 0,
+	HC = 1,
+	GC = 2,
+	NUM_COORDINATE_TYPES
+};
+
+
 class Program {
 
 public:
@@ -42,5 +52,13 @@ private:
 	std::shared_ptr<MeshObject> m_model = nullptr;
 	std::shared_ptr<MeshObject> m_cage = nullptr;
 
+	std::vector<std::vector<float>> m_vertWeights; // [i][j] represents the weight of cage vert j on model vert i
+	//std::vector<std::vector<float>> m_normalWeights; // [i][j] represents the weight of cage face normal j on model vert i (only used for GC)
+
+	void computeCageWeights();
+	void deformModel();
+
+
+	CoordinateTypes m_coordinateType = CoordinateTypes::MVC; // default is MVC
 
 };

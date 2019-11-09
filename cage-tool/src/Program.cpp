@@ -225,6 +225,9 @@ void Program::drawUI() {
 			ImGui::PopItemWidth();
 		}
 
+		if (ImGui::Button("COMPUTE CAGE WEIGHTS")) computeCageWeights();
+		ImGui::Separator();
+
 		ImGui::End();
 	}
 
@@ -262,4 +265,182 @@ void Program::mainLoop() {
 	glfwDestroyWindow(window);
 	window = nullptr;
 	glfwTerminate();
+}
+
+
+//REFERENCES:
+// https://math.stackexchange.com/questions/9819/area-of-a-spherical-triangle
+// https://www.quora.com/What-is-the-surface-area-of-a-spherical-triangle-of-which-I-know-the-lenghths-of-arcs-which-form-the-triangle-and-the-radius-of-the-sphere
+// http://mathworld.wolfram.com/SphericalTriangle.html
+// http://mathworld.wolfram.com/SphericalTrigonometry.html
+//NOTE: there might be a bug here cause the 2nd tap of the button adds extra memory for some reason (its like 3MB extra)
+//TODO: safety checking might have to be added, or otherwise make sure the calculation still works if cage face is less than 1 unit from model (does the unit sphere need to be shrunk more?)
+//TODO: i did fix a bug where some weights were -nan due to the sqrt(<0) since I used the wrong formula for s (i forgot to divide by 2). so, more testing needs to be done to ensure this doesnt happen again
+//NOTE: right now, idk how this behaves with per-face normals, I would like if the models were only per-vertex normals (thus every vertex is unique)
+//TODO: implement HC/GC weights
+// this method computes the vector of cage vertex weights for every model vertex, in the current orientation of both meshes
+void Program::computeCageWeights() {
+	
+	// cleanup...
+	m_vertWeights.clear();
+	//m_normalWeights.clear();
+	
+	if (nullptr == m_model || nullptr == m_cage) return;
+
+	// 0. init vector sizes...
+
+	m_vertWeights = std::vector<std::vector<float>>(m_model->drawVerts.size(), std::vector<float>(m_cage->drawVerts.size(), 0.0f));
+	//TODO: init m_normalWeights
+
+	// compute new weights based on set coord type...
+
+	if (CoordinateTypes::MVC == m_coordinateType) {
+		// compute vertWeights...
+
+		// process...
+		// 1. foreach model vert, compute the vector of cage vert weights
+		// - assume we have model vert i and cage face f,
+		// - project a unit sphere centered on i
+		// - project the triangular face f onto the surface of the unit sphere
+		// - calculate the spherical triangle area and save that as partial weight for points 1,2,3 making up f
+
+		//TODO: make sure the indexing makes sense
+		//TODO?: change the notation later
+		//TODO: edge cage error checking
+		for (unsigned int i = 0; i < m_model->drawVerts.size(); ++i) {
+
+			// init the cage vert weights vector for model vert i...
+			std::vector<float> u_i(m_cage->drawVerts.size(), 0.0f);
+
+			//NOTE: since we are using a unit sphere (R=1), the radius will be implicit in all calculations
+			glm::vec3 const sphereOrigin = m_model->drawVerts.at(i);
+
+			// foreach triangle face in cage mesh...
+			for (unsigned int f = 0; f < m_cage->drawFaces.size(); f += 3) {
+
+				// save the 3 cage vert indices making up cage face f...
+				unsigned int const a_index = m_cage->drawFaces.at(f);
+				unsigned int const b_index = m_cage->drawFaces.at(f+1);
+				unsigned int const c_index = m_cage->drawFaces.at(f+2);
+
+				// get the 3 cage vert positions...
+				glm::vec3 const a_pos = m_cage->drawVerts.at(a_index);
+				glm::vec3 const b_pos = m_cage->drawVerts.at(b_index);
+				glm::vec3 const c_pos = m_cage->drawVerts.at(c_index);
+
+				// find the projected 3 points on unit sphere to make up spherical triangle whose area we need
+				// I find the intersection vector from sphere origin directed towards triangle point (not other direction, in case the triangle happens to be within sphere somehow)
+				// thus we will only ever have exactly 1 intersection point with a positive scalar value of R=1
+
+				// all 3 of these positions will be relative to the sphere origin (thus all lengths should be R=1)
+				glm::vec3 const a_proj_pos = glm::normalize(a_pos - sphereOrigin);
+				glm::vec3 const b_proj_pos = glm::normalize(b_pos - sphereOrigin);
+				glm::vec3 const c_proj_pos = glm::normalize(c_pos - sphereOrigin);
+
+				// apply formula...
+				// explanation...
+				// 1. a is the angle between b_proj_pos (origin to spherical tri point b) and c_proj_pos (origin to spherical tri point c)
+				// we know the formula for the dot product as... b_proj_pos dot c_proj_pos = ||b_proj_pos|| * ||c_proj_pos|| * cos(a)
+				// rearrange the formula to get the angle a, noting that both lengths are R=1 and factored out
+				// 2. next, we need to get the corresponding arc length of 1 side of the spherical triangle
+				// the general formula for an angle theta in radians is of course, ARCLENGTH = R*theta
+				// but, since R=1, ARCLENGTH = theta, thus we can just use the angles a,b,c as the arclengths
+				// 3. next, we need to calculate s which is the SEMI-PERIMETER of the spherical triangle arclengths (so perimeter = a+b+c) divided by 2
+
+				float const a = glm::acos(glm::dot(b_proj_pos, c_proj_pos));
+				float const b = glm::acos(glm::dot(c_proj_pos, a_proj_pos));
+				float const c = glm::acos(glm::dot(a_proj_pos, b_proj_pos));
+				float const s = (a + b + c) / 2;
+
+				//TODO: must make sure that we arent taking a sqrt of a negative number ever and result with a -nan (this was happening since 1 tangent was negative) before i changed s to now div by 2
+				//NOTE: area should always be >=0 of course, thus it should follow that all weights will be >=0
+				//TODO?: should I clamp the weights above 0 just to be safe? - there could be some numerical error in floats, for really small weights
+				// 4. calculate the area of the spherical triangle from this formula based on the side lengths (arcs)
+				// this formula is to actually calculate the spherical excess E = 4 * ...
+				// but, since the area of the spherical triangle is given by AREA = E * R^2 (and R=1), so AREA = E = 4 * ...
+				float const area = 4 * glm::atan(glm::sqrt(glm::tan(s / 2) * glm::tan((s - a) / 2) * glm::tan((s - b) / 2) * glm::tan((s - c) / 2)));
+
+				//NOTE: I don't believe there's a need to avg by number of faces that vert is appart of. A vert should have its weight set based on the sum of all face areas its connected to since these faces get modified when this vert gets modified
+				// 5. each vert gets this extra weight
+				u_i.at(a_index) += area;
+				u_i.at(b_index) += area;
+				u_i.at(c_index) += area;
+			}
+
+			// 6. normalize the weights vector (sum of all elements = 1) for affine property
+
+			float totalW = 0.0f;
+			for (unsigned int j = 0; j < u_i.size(); ++j) {
+				totalW += u_i.at(j);
+			}
+
+			for (unsigned int j = 0; j < u_i.size(); ++j) {
+				u_i.at(j) /= totalW;
+			}
+
+			// 7. assign weights vector to the model vert i
+			m_vertWeights.at(i) = u_i; // insert finished weight vector into matrix
+		}
+
+	} else if (CoordinateTypes::HC == m_coordinateType) {
+		//TODO (compute vertWeights) - low priority
+	} else if (CoordinateTypes::GC == m_coordinateType) {
+		//TODO (compute vertWeights) - low priority
+		//TODO (compute normalWeights) - low priority
+	} else {
+		std::cout << "ERROR (Program.cpp) - INVALID COORDINATE TYPE" << std::endl;
+		return;
+	}
+
+}
+
+
+//TODO?: add a check to see if weights exist at the moment (i.e. were they properly computed previously and do the weights match the current coord system)
+//TODO: testing
+void Program::deformModel() {
+	if (nullptr == m_model || nullptr == m_cage) return;
+
+	// NOTATION (following course notes)...
+	std::vector<glm::vec3> const& v = m_cage->drawVerts;
+	std::vector<std::vector<float>> const& u = m_vertWeights; // size (n+1)x(m+1)
+
+	//std::vector<glm::vec3> const& psi = m_cage->faceNormals; //TODO: implement later
+	//std::vector<std::vector<float>> const& omega = m_normalWeights; // size (n+1)x(k+1)
+
+	unsigned int const n = m_model->drawVerts.size() - 1;
+	unsigned int const m = v.size() - 1;
+	//unsigned int const k = psi.size() - 1;
+
+	// foreach model vert...
+	for (unsigned int i = 0; i <= n; ++i) {
+		// update model vert i (c_i) as a linear combo of cage verts (MVC, HC, GC) + cage face normals (GC only)
+		glm::vec3 c_i = glm::vec3(0.0f, 0.0f, 0.0f);
+
+		std::vector<float> const& u_i = u.at(i);
+
+		// for each cage vert...
+		for (unsigned int j = 0; j <= m; ++j) {
+			c_i += u_i.at(j) * v.at(j);
+		}
+
+		/*
+		if (CoordinateTypes::GC == m_coordinateType) {
+
+			std::vector<float> const& omega_i = omega.at(i);
+
+			// for each cage face normal...
+			for (unsigned int j = 0; j <= k; ++j) {
+				c_i += omega_i.at(j) * psi.at(j);
+			}
+		}
+		*/
+
+		m_model->drawVerts.at(i) = c_i; // update
+	}
+
+	//TODO:
+	//0. all new drawVerts were just calculated and set in the vector
+	//1. recalculate any necessary geometry changes for new deformed model such as the normals (per vertex normal calculation - the angle way?)
+	//2. update buffers
+
 }
