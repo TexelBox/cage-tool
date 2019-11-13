@@ -7,11 +7,13 @@ uniform vec3 lightPos;
 layout (location = 0) in vec3 vertex;
 layout (location = 1) in vec3 normal;
 layout (location = 2) in vec2 uv;
+layout (location = 3) in vec3 colour;
 
 out vec3 N;
 out vec3 L;
 out vec3 V;
 out vec2 UV;
+out vec3 COLOUR;
 
 void main(void) {	
 
@@ -32,5 +34,7 @@ void main(void) {
 	L = normalize(lightCameraSpace.xyz - P);
 	V = normalize(-P);
 	
-    gl_Position = projection * pCameraSpace;   
+    gl_Position = projection * pCameraSpace;
+	
+	COLOUR = colour; 
 }

@@ -32,6 +32,10 @@ public:
 	Program();
 	void start();
 
+	std::shared_ptr<MeshObject> m_model = nullptr;
+	std::shared_ptr<MeshObject> m_cage = nullptr;
+
+
 private:
 	GLFWwindow *window = nullptr;
 	std::shared_ptr<RenderEngine> renderEngine = nullptr;
@@ -49,8 +53,10 @@ private:
 	void createTestMeshObject();
 
 
-	std::shared_ptr<MeshObject> m_model = nullptr;
-	std::shared_ptr<MeshObject> m_cage = nullptr;
+	std::shared_ptr<MeshObject> m_yzPlane = nullptr;
+	std::shared_ptr<MeshObject> m_xzPlane = nullptr;
+	std::shared_ptr<MeshObject> m_xyPlane = nullptr;
+
 
 	std::vector<std::vector<float>> m_vertWeights; // [i][j] represents the weight of cage vert j on model vert i
 	//std::vector<std::vector<float>> m_normalWeights; // [i][j] represents the weight of cage face normal j on model vert i (only used for GC)

@@ -20,6 +20,12 @@ std::shared_ptr<MeshObject> ObjectLoader::createMeshObject(std::string modelFile
 	m->verts = raw_verts;
 	m->uvs = indexed_uvs;
 	m->normals = indexed_normals;
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m->drawVerts.size(); ++i) {
+		m->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
 	m->drawFaces = indices;
 	m->faces = faces;
 

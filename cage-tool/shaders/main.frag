@@ -1,4 +1,4 @@
- #version 430 core
+#version 430 core
 
 out vec4 colour;
 
@@ -9,6 +9,7 @@ in vec3 N;
 in vec3 L;
 in vec3 V;
 in vec2 UV;
+in vec3 COLOUR;
 
 void main(void) {    	
 
@@ -19,7 +20,7 @@ void main(void) {
 		imgColour = texture(image, UV);
 	}
 	else {
-		imgColour = vec4(1.f, 0.f, 0.f, 1.f);
+		imgColour = vec4(COLOUR, 1.0f);
 	}
 
 	float diffuse =  (dot(N, L) + 1) / 2;

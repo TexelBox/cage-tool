@@ -20,9 +20,12 @@ class RenderEngine {
 public:
 	RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera);
 
+	void renderPicking(std::vector<std::shared_ptr<MeshObject>> const& objects);
 	void render(std::vector<std::shared_ptr<MeshObject>> const& objects);
-	void renderLight();
+	//void renderLight();
 	void assignBuffers(MeshObject &object);
+	void updateBuffers(MeshObject &object, bool const updateVerts, bool const updateUVs, bool const updateNormals, bool const updateColours);
+
 	void setWindowSize(int width, int height);
 
 	void updateLightPos(glm::vec3 add);
@@ -35,6 +38,7 @@ private:
 
 	GLuint mainProgram;
 	GLuint lightProgram;
+	GLuint pickingProgram;
 
 	glm::mat4 projection;
 	glm::vec3 lightPos;

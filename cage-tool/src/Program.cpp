@@ -44,6 +44,8 @@ void Program::setupWindow() {
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(1); // V-sync on
 
+	glfwSetWindowUserPointer(window, this);
+
 	glfwSetKeyCallback(window, InputHandler::key);
 	glfwSetMouseButtonCallback(window, InputHandler::mouse);
 	glfwSetCursorPosCallback(window, InputHandler::motion);
@@ -69,17 +71,117 @@ void Program::setupWindow() {
 }
 
 // Loads an object from a .obj file. Can support textures.
+//TODO: right now this initializes all our objects, but some of this initialization (model+cage) should be performed through user interaction (e.g. load obj file from disk)
 void Program::createTestMeshObject() {
+	
+	// draw a symmetrical grid for each cartesian plane...
+	
+	//NOTE: compare this to far clipping plane distance of 2000
+	//NOTE: all these should be the same
+	int const maxX = 500;
+	int const maxY = 500;
+	int const maxZ = 500;
+	//NOTE: any change here should be reflected in the ImGui notice
+	int const deltaX = 10;
+	int const deltaY = 10;
+	int const deltaZ = 10;
+
+	// YZ PLANE
+
+	m_yzPlane = std::make_shared<MeshObject>();
+
+	for (int y = -maxY; y <= maxY; y += deltaY) {
+		m_yzPlane->drawVerts.push_back(glm::vec3(0.0f, y, -maxZ));
+		m_yzPlane->drawVerts.push_back(glm::vec3(0.0f, y, maxZ));
+	}
+	for (int z = -maxZ; z <= maxZ; z += deltaZ) {
+		m_yzPlane->drawVerts.push_back(glm::vec3(0.0f, -maxY, z));
+		m_yzPlane->drawVerts.push_back(glm::vec3(0.0f, maxY, z));
+	}
+
+	for (unsigned int i = 0; i < m_yzPlane->drawVerts.size(); ++i) {
+		m_yzPlane->drawFaces.push_back(i);
+		m_yzPlane->colours.push_back(glm::vec3(1.0f, 0.0f, 0.0f));
+	}
+
+	m_yzPlane->m_primitiveMode = PrimitiveMode::LINES;
+	meshObjects.push_back(m_yzPlane);
+	renderEngine->assignBuffers(*m_yzPlane);
+
+	// XZ PLANE
+
+	m_xzPlane = std::make_shared<MeshObject>();
+
+	for (int x = -maxX; x <= maxX; x += deltaX) {
+		m_xzPlane->drawVerts.push_back(glm::vec3(x, 0.0f, -maxZ));
+		m_xzPlane->drawVerts.push_back(glm::vec3(x, 0.0f, maxZ));
+	}
+	for (int z = -maxZ; z <= maxZ; z += deltaZ) {
+		m_xzPlane->drawVerts.push_back(glm::vec3(-maxX, 0.0f, z));
+		m_xzPlane->drawVerts.push_back(glm::vec3(maxX, 0.0f, z));
+	}
+
+	for (unsigned int i = 0; i < m_xzPlane->drawVerts.size(); ++i) {
+		m_xzPlane->drawFaces.push_back(i);
+		m_xzPlane->colours.push_back(glm::vec3(0.0f, 1.0f, 0.0f));
+	}
+
+	m_xzPlane->m_primitiveMode = PrimitiveMode::LINES;
+	meshObjects.push_back(m_xzPlane);
+	renderEngine->assignBuffers(*m_xzPlane);
+
+	// XY PLANE
+
+	m_xyPlane = std::make_shared<MeshObject>();
+
+	for (int x = -maxX; x <= maxX; x += deltaX) {
+		m_xyPlane->drawVerts.push_back(glm::vec3(x, -maxY, 0.0f));
+		m_xyPlane->drawVerts.push_back(glm::vec3(x, maxY, 0.0f));
+	}
+	for (int y = -maxY; y <= maxY; y += deltaY) {
+		m_xyPlane->drawVerts.push_back(glm::vec3(-maxX, y, 0.0f));
+		m_xyPlane->drawVerts.push_back(glm::vec3(maxX, y, 0.0f));
+	}
+
+	for (unsigned int i = 0; i < m_xyPlane->drawVerts.size(); ++i) {
+		m_xyPlane->drawFaces.push_back(i);
+		m_xyPlane->colours.push_back(glm::vec3(0.0f, 0.0f, 1.0f));
+	}
+
+	m_xyPlane->m_primitiveMode = PrimitiveMode::LINES;
+	meshObjects.push_back(m_xyPlane);
+	renderEngine->assignBuffers(*m_xyPlane);
+
+	// MODEL
+
 	m_model = ObjectLoader::createMeshObject("models/armadillo-with-normals.obj");
 	if (m_model->hasTexture) m_model->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
-	m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+	//m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 	meshObjects.push_back(m_model);
 	renderEngine->assignBuffers(*m_model);
 
+	// CAGE
+
 	m_cage = ObjectLoader::createMeshObject("models/armadillo_cage-with-normals.obj");
-	if (m_cage->hasTexture) m_cage->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
+	
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = glm::vec3(0.0f, 0.0f, 0.0f);
+		
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
 	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
-	m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+	m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 	meshObjects.push_back(m_cage);
 	renderEngine->assignBuffers(*m_cage);
 }
@@ -99,6 +201,17 @@ void Program::drawUI() {
 		ImGui::ColorEdit3("CLEAR COLOR", (float*)&clearColor);
 
 		ImGui::Separator();
+
+		if (ImGui::Button("TOGGLE YZ-PLANE (RED)")) m_yzPlane->m_isVisible = !m_yzPlane->m_isVisible;
+		ImGui::SameLine();
+		if (ImGui::Button("TOGGLE XZ-PLANE (GREEN)")) m_xzPlane->m_isVisible = !m_xzPlane->m_isVisible;
+		ImGui::SameLine();
+		if (ImGui::Button("TOGGLE XY-PLANE (BLUE)")) m_xyPlane->m_isVisible = !m_xyPlane->m_isVisible;
+		ImGui::SameLine();
+		ImGui::Text("	note: grid spacing is 10 units");
+
+		ImGui::Separator();
+
 
 
 		//TODO: optimize this in the future (e.g. only update position/rotation/scale if a field changed)
@@ -239,9 +352,11 @@ void Program::mainLoop() {
 	createTestMeshObject();
 
 	// Our state
-	clearColor = ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
+	clearColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); //NOTE: keep this white since it has the least chance of interfering with color picking (due to being the last possible color that can be generated)
 
 	while(!glfwWindowShouldClose(window)) {
+
+		//NOTE: any colour picking will be done in mouse callback...
 		glfwPollEvents();
 
 		drawUI();
