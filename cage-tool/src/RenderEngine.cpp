@@ -25,7 +25,7 @@ RenderEngine::RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera) :
 
 
 //NOTE: this currently will ignore visibility flag
-//NOTE: the model gets rendered as well since it is needed for occlusion tests (all "occlusion" objects should be passed here along with cage, but currently only the model makes sense)
+//NOTE: if the model has been imported, the model gets rendered as well since it is needed for occlusion tests (all "occlusion" objects should be passed here along with cage, but currently only the model makes sense)
 //NOTE: currently assuming the cage is passed in with polygon mode as POINT
 //NOTE: currently assuming the cage is passed in with pickingColours bound to its colour buffer
 void RenderEngine::renderPicking(std::vector<std::shared_ptr<MeshObject>> const& objects) {

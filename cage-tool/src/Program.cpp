@@ -1,5 +1,10 @@
 #include "Program.h"
 
+
+// STATICS (INIT)...
+glm::vec3 const Program::s_CAGE_UNSELECTED_COLOUR = glm::vec3(0.0f, 0.0f, 0.0f);
+glm::vec3 const Program::s_CAGE_SELECTED_COLOUR = glm::vec3(1.0f, 1.0f, 0.0f);
+
 Program::Program() {
 
 }
@@ -167,7 +172,7 @@ void Program::createTestMeshObject() {
 	// set cage black and also set picking colours...
 	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
 		// render colour...
-		m_cage->colours.at(i) = glm::vec3(0.0f, 0.0f, 0.0f);
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
 		
 		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
 		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
@@ -281,6 +286,11 @@ void Program::drawUI() {
 		if (nullptr != m_cage) {
 			ImGui::Text("CAGE");
 
+			if (ImGui::Button("SELECT ALL VERTS")) selectCageVerts(0, m_cage->colours.size());
+			ImGui::SameLine();
+			if (ImGui::Button("UNSELECT ALL VERTS")) unselectCageVerts(0, m_cage->colours.size());
+			ImGui::SameLine();
+			if (ImGui::Button("TOGGLE ALL VERTS")) toggleCageVerts(0, m_cage->colours.size());
 
 			ImGui::PushItemWidth(200.0f);
 
@@ -559,3 +569,61 @@ void Program::deformModel() {
 	//2. update buffers
 
 }
+
+
+//NOTE: both startIndex and endIndex will be inclusive
+void Program::selectCageVerts(unsigned int const startIndex, unsigned int const count) {
+	// error handling...
+	if (nullptr == m_cage || startIndex >= m_cage->colours.size() || count == 0) return;
+
+	// clamp endIndex max bound to last index in colours vector
+	unsigned int const endIndex = (startIndex + count - 1) >= m_cage->colours.size() ? m_cage->colours.size() - 1 : startIndex + count - 1;
+
+	// set all specified verts to selected colour...
+	for (unsigned int i = startIndex; i <= endIndex; ++i) {
+		m_cage->colours.at(i) = s_CAGE_SELECTED_COLOUR;
+	}
+
+	// update colour buffer
+	// this enum test should always evaluate to true, but in case it isn't we can skip the update buffers, since the picking colours would just be reinserted (unchanged)
+	if (ColourMode::NORMAL == m_cage->m_colourMode) renderEngine->updateBuffers(*m_cage, false, false, false, true);
+}
+
+
+//NOTE: both startIndex and endIndex will be inclusive
+void Program::unselectCageVerts(unsigned int const startIndex, unsigned int const count) {
+	// error handling...
+	if (nullptr == m_cage || startIndex >= m_cage->colours.size() || count == 0) return;
+
+	// clamp endIndex max bound to last index in colours vector
+	unsigned int const endIndex = (startIndex + count - 1) >= m_cage->colours.size() ? m_cage->colours.size() - 1 : startIndex + count - 1;
+
+	// set all specified verts to unselected colour...
+	for (unsigned int i = startIndex; i <= endIndex; ++i) {
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+	}
+
+	// update colour buffer
+	// this enum test should always evaluate to true, but in case it isn't we can skip the update buffers, since the picking colours would just be reinserted (unchanged)
+	if (ColourMode::NORMAL == m_cage->m_colourMode) renderEngine->updateBuffers(*m_cage, false, false, false, true);
+}
+
+
+//NOTE: both startIndex and endIndex will be inclusive
+void Program::toggleCageVerts(unsigned int const startIndex, unsigned int const count) {
+	// error handling...
+	if (nullptr == m_cage || startIndex >= m_cage->colours.size() || count == 0) return;
+
+	// clamp endIndex max bound to last index in colours vector
+	unsigned int const endIndex = (startIndex + count - 1) >= m_cage->colours.size() ? m_cage->colours.size() - 1 : startIndex + count - 1;
+
+	// set all specified verts to opposite colour...
+	for (unsigned int i = startIndex; i <= endIndex; ++i) {
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR == m_cage->colours.at(i) ? s_CAGE_SELECTED_COLOUR : s_CAGE_UNSELECTED_COLOUR;
+	}
+
+	// update colour buffer
+	// this enum test should always evaluate to true, but in case it isn't we can skip the update buffers, since the picking colours would just be reinserted (unchanged)
+	if (ColourMode::NORMAL == m_cage->m_colourMode) renderEngine->updateBuffers(*m_cage, false, false, false, true);
+}
+

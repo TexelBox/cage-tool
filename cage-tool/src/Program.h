@@ -29,12 +29,18 @@ enum CoordinateTypes {
 class Program {
 
 public:
+	static glm::vec3 const s_CAGE_UNSELECTED_COLOUR;
+	static glm::vec3 const s_CAGE_SELECTED_COLOUR;
+
 	Program();
 	void start();
 
 	std::shared_ptr<MeshObject> m_model = nullptr;
 	std::shared_ptr<MeshObject> m_cage = nullptr;
 
+	void selectCageVerts(unsigned int const startIndex, unsigned int const count);
+	void unselectCageVerts(unsigned int const startIndex, unsigned int const count);
+	void toggleCageVerts(unsigned int const startIndex, unsigned int const count);
 
 private:
 	GLFWwindow *window = nullptr;

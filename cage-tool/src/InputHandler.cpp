@@ -41,7 +41,7 @@ void InputHandler::mouse(GLFWwindow *window, int button, int action, int mods) {
 
 	Program *program = (Program*)glfwGetWindowUserPointer(window);
 
-	if (GLFW_MOUSE_BUTTON_RIGHT == button && GLFW_PRESS == action && nullptr != program->m_model && nullptr != program->m_cage) {
+	if (GLFW_MOUSE_BUTTON_RIGHT == button && GLFW_PRESS == action && nullptr != program->m_cage) {
 
 		// COLOUR PICKING (back buffer querying)...
 		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
@@ -58,7 +58,8 @@ void InputHandler::mouse(GLFWwindow *window, int button, int action, int mods) {
 		renderEngine->updateBuffers(*(program->m_cage), false, false, false, true);
 
 		// render...
-		renderEngine->renderPicking({program->m_model, program->m_cage});
+		if (nullptr != program->m_model) renderEngine->renderPicking({program->m_model, program->m_cage}); // render the model as well, to act as an occluder
+		else renderEngine->renderPicking({program->m_cage});
 		
 		// reset...
 		program->m_cage->m_polygonMode = prevCagePolygonMode;
@@ -89,16 +90,10 @@ void InputHandler::mouse(GLFWwindow *window, int button, int action, int mods) {
 
 		// only handle picked colours belonging to cage vert picking range...
 		if (pickedID < program->m_cage->pickingColours.size()) {
-			//hack for now...
-			program->m_cage->colours.at(pickedID) = glm::vec3(1.0f, 1.0f, 0.0f);
-			renderEngine->updateBuffers(*(program->m_cage), false, false, false, true);
-			//TODO: call program method that takes in this ID and toggles the picking state of the unique cage vertex this belongs to (MUST MAKE SURE CAGES ONLY HAVE UNIQUE VERTS, since they don't have uvs, or normals?)
+			program->toggleCageVerts(pickedID, 1);
 		}
 
-		//TODO: have an imgui button that clears all selected verts, another imgui that selects all (this would be nice if the user wants to work with alot of verts at once)
-		//TODO: render a selected vert as a different render color (but picking color must stay same)
 		//TODO: modify above method for key-control to no longer move light source, but instead move all selected verts in 6 axes (+ve and -ve)
-		//TODO: can i modify code to make it so light source is always at camera eye, or maybe directed along vector from origin to camera eye,. but actually 500 units away from origin (to make illumination less harsh?)
 		//TODO: ignore imported normals (if any), then generate per vertex normals using angular-weights?
 		// can also generate per-face normals to use in calculations (optional thing that we should only do when needed)
 		//TODO?: calculate the extents of the imported model and scale down for consistency
