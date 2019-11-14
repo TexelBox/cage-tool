@@ -1,5 +1,7 @@
 #include "ObjectLoader.h"
 
+#include <boost/algorithm/string.hpp>
+
 // Create MeshObject from obj file
 std::shared_ptr<MeshObject> ObjectLoader::createMeshObject(std::string modelFile) {
 	std::shared_ptr<MeshObject> m = std::make_shared<MeshObject>();
