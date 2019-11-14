@@ -139,5 +139,11 @@
     <None Include="shaders\picking.vert">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="shaders\trivial.vert">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="shaders\trivial.frag">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

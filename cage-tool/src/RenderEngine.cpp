@@ -4,6 +4,7 @@ RenderEngine::RenderEngine(GLFWwindow *window, std::shared_ptr<Camera> camera) :
 	int width, height;
 	glfwGetWindowSize(window, &width, &height);
 
+	trivialProgram = ShaderTools::compileShaders("shaders/trivial.vert", "shaders/trivial.frag");
 	mainProgram = ShaderTools::compileShaders("shaders/main.vert", "shaders/main.frag");
 	lightProgram = ShaderTools::compileShaders("shaders/light.vert", "shaders/light.frag");
 	pickingProgram = ShaderTools::compileShaders("shaders/picking.vert", "shaders/picking.frag");
@@ -91,9 +92,18 @@ void RenderEngine::render(std::vector<std::shared_ptr<MeshObject>> const& object
 		glDrawElements(o->m_primitiveMode, o->drawFaces.size(), GL_UNSIGNED_INT, (void*)0);
 
 		//HACK: for now to get the cage to also render as points
+		//NOTE: these points will get rendered using the trivial shader (no shading)
 		if (o->m_renderPoints) {
+			glUseProgram(trivialProgram);
+
+			glm::mat4 const mvp = projection * modelView;
+			glUniformMatrix4fv(glGetUniformLocation(trivialProgram, "mvp"), 1, GL_FALSE, glm::value_ptr(mvp));
+
 			glPolygonMode(GL_FRONT_AND_BACK, PolygonMode::POINT);
 			glDrawElements(o->m_primitiveMode, o->drawFaces.size(), GL_UNSIGNED_INT, (void*)0);
+			
+			// switch back to main shader for next object
+			glUseProgram(mainProgram);
 		}
 
 		glBindVertexArray(0);

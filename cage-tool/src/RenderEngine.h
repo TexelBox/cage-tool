@@ -36,6 +36,7 @@ private:
 	GLFWwindow *window = nullptr;
 	std::shared_ptr<Camera> camera = nullptr;
 
+	GLuint trivialProgram;
 	GLuint mainProgram;
 	GLuint lightProgram;
 	GLuint pickingProgram;

@@ -193,6 +193,8 @@
     <None Include="shaders\main.vert" />
     <None Include="shaders\picking.frag" />
     <None Include="shaders\picking.vert" />
+    <None Include="shaders\trivial.frag" />
+    <None Include="shaders\trivial.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
