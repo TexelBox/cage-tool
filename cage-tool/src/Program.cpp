@@ -159,7 +159,7 @@ void Program::createTestMeshObject() {
 
 	// MODEL
 
-	m_model = ObjectLoader::createMeshObject("models/armadillo-with-normals.obj");
+	m_model = ObjectLoader::createTriMeshObject("models/armadillo.obj", false, true); // force ignore normals (TODO: generate them ourselves)
 	if (m_model->hasTexture) m_model->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
 	//m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 	meshObjects.push_back(m_model);
@@ -167,7 +167,7 @@ void Program::createTestMeshObject() {
 
 	// CAGE
 
-	m_cage = ObjectLoader::createMeshObject("models/armadillo_cage-with-normals.obj");
+	m_cage = ObjectLoader::createTriMeshObject("models/armadillo_cage.obj", true, true); // force ignore both uvs and normals if present in file
 	
 	// set cage black and also set picking colours...
 	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {

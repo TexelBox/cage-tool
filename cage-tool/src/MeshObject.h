@@ -43,7 +43,8 @@ public:
 	virtual ~MeshObject();
 
 	//TODO: probably will have to change this to store better adjacency information to make our algorithms easier
-	std::vector<glm::vec3> verts;
+	
+	//std::vector<glm::vec3> verts;
 
 	std::vector<glm::vec3> drawVerts;
 	std::vector<glm::vec3> normals;
@@ -55,7 +56,8 @@ public:
 	std::vector<glm::vec3> pickingColours;
 	ColourMode m_colourMode = ColourMode::NORMAL; // represents which vector is currently bound in the colour buffer (will probably only be swapped for the cage)
 
-	std::vector<GLuint> faces;
+	//std::vector<GLuint> faces;
+	
 	std::vector<GLuint> drawFaces;
 
 	GLuint vao;
