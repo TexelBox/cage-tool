@@ -201,15 +201,45 @@ void RenderEngine::updateBuffers(MeshObject &object, bool const updateVerts, boo
 
 
 	if (updateVerts && 0 != object.vertexBuffer) {
-		//TODO...
+		std::vector<glm::vec3> const& newVerts = object.drawVerts;
+		unsigned int const newSize = sizeof(glm::vec3)*newVerts.size();
+
+		GLint oldSize = 0;
+		glBindBuffer(GL_ARRAY_BUFFER, object.vertexBuffer);
+		glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize); // get size of data in buffer
+
+		// only update buffer data if new data is same size, otherwise buffer will be unchanged
+		if (newSize == oldSize) {
+			glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, newVerts.data());
+		}
 	}
 
 	if (updateUVs && 0 != object.uvBuffer) {
-		//TODO...
+		std::vector<glm::vec2> const& newUVs = object.uvs;
+		unsigned int const newSize = sizeof(glm::vec2)*newUVs.size();
+
+		GLint oldSize = 0;
+		glBindBuffer(GL_ARRAY_BUFFER, object.uvBuffer);
+		glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize); // get size of data in buffer
+
+		// only update buffer data if new data is same size, otherwise buffer will be unchanged
+		if (newSize == oldSize) {
+			glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, newUVs.data());
+		}
 	}
 
 	if (updateNormals && 0 != object.normalBuffer) {
-		//TODO...
+		std::vector<glm::vec3> const& newNormals = object.normals;
+		unsigned int const newSize = sizeof(glm::vec3)*newNormals.size();
+
+		GLint oldSize = 0;
+		glBindBuffer(GL_ARRAY_BUFFER, object.normalBuffer);
+		glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize); // get size of data in buffer
+
+		// only update buffer data if new data is same size, otherwise buffer will be unchanged
+		if (newSize == oldSize) {
+			glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, newNormals.data());
+		}
 	}
 
 	if (updateColours && 0 != object.colourBuffer) {
