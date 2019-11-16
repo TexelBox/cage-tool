@@ -627,3 +627,27 @@ void Program::toggleCageVerts(unsigned int const startIndex, unsigned int const 
 	if (ColourMode::NORMAL == m_cage->m_colourMode) renderEngine->updateBuffers(*m_cage, false, false, false, true);
 }
 
+void Program::translateSelectedCageVerts(glm::vec3 const& translation) {
+	if (nullptr == m_cage) return;
+
+	bool hasChanged = false;
+
+	// loop through all cage verts...
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		glm::vec3 &vert = m_cage->drawVerts.at(i);
+
+		// if vert is selected, apply translation to it
+		if (s_CAGE_SELECTED_COLOUR == m_cage->colours.at(i)) {
+			vert += translation;
+			hasChanged = true;
+		}
+	}
+
+	//TODO: add in call to recompute normals of cage (if we are including normals with cage) - would need to set updateNormals true in updateBuffers() call
+
+	if (hasChanged) {
+		renderEngine->updateBuffers(*m_cage, true, false, false, false);
+	
+		//TODO: add in call to deformModel() if its not null
+	}
+}

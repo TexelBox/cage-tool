@@ -42,6 +42,8 @@ public:
 	void unselectCageVerts(unsigned int const startIndex, unsigned int const count);
 	void toggleCageVerts(unsigned int const startIndex, unsigned int const count);
 
+	void translateSelectedCageVerts(glm::vec3 const& translation);
+
 private:
 	GLFWwindow *window = nullptr;
 	std::shared_ptr<RenderEngine> renderEngine = nullptr;
