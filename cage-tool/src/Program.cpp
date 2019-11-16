@@ -520,10 +520,14 @@ void Program::computeCageWeights() {
 }
 
 
-//TODO?: add a check to see if weights exist at the moment (i.e. were they properly computed previously and do the weights match the current coord system)
 //TODO: testing
 void Program::deformModel() {
+
+	// if one (or both) objects has not been loaded in, we cannot apply algorithm
 	if (nullptr == m_model || nullptr == m_cage) return;
+
+	// if we have no weights (e.g. user hasn't pressed compute cage weights button yet or they have cleared the weights), we cannot apply algorithm
+	if (m_vertWeights.size() == 0) return;
 
 	// NOTATION (following course notes)...
 	std::vector<glm::vec3> const& v = m_cage->drawVerts;
@@ -563,11 +567,9 @@ void Program::deformModel() {
 		m_model->drawVerts.at(i) = c_i; // update
 	}
 
-	//TODO:
-	//0. all new drawVerts were just calculated and set in the vector
-	//1. recalculate any necessary geometry changes for new deformed model such as the normals (per vertex normal calculation - the angle way?)
-	//2. update buffers
+	//TODO: call the recompute normals method on MODEL and then pass true as the updateNormals param to updateBuffers()
 
+	renderEngine->updateBuffers(*m_model, true, false, false, false);
 }
 
 
@@ -649,5 +651,6 @@ void Program::translateSelectedCageVerts(glm::vec3 const& translation) {
 		renderEngine->updateBuffers(*m_cage, true, false, false, false);
 	
 		//TODO: add in call to deformModel() if its not null
+		deformModel();
 	}
 }
