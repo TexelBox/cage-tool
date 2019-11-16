@@ -330,6 +330,7 @@ ASALocalRun/
 .mfractor/
 
 # CUSTOM RULES:
+!cage-tool/include/**
 !cage-tool/lib/**
 !cage-tool/models/**
 
