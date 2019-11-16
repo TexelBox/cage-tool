@@ -348,8 +348,14 @@ void Program::drawUI() {
 			ImGui::PopItemWidth();
 		}
 
-		if (ImGui::Button("COMPUTE CAGE WEIGHTS")) computeCageWeights();
-		ImGui::Separator();
+		if (nullptr != m_model && nullptr != m_cage) {
+			if (m_vertWeights.empty()) {
+				if (ImGui::Button("COMPUTE CAGE WEIGHTS")) computeCageWeights();
+			} else {
+				if (ImGui::Button("CLEAR CAGE WEIGHTS")) m_vertWeights.clear();
+			}
+			ImGui::Separator();
+		}
 
 		ImGui::End();
 	}
