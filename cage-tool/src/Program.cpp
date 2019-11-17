@@ -159,7 +159,8 @@ void Program::createTestMeshObject() {
 
 	// MODEL
 
-	m_model = ObjectLoader::createTriMeshObject("models/armadillo.obj", false, true); // force ignore normals (TODO: generate them ourselves)
+	m_model = ObjectLoader::createTriMeshObject("models/armadillo-with-normals.obj");
+	//m_model = ObjectLoader::createTriMeshObject("models/armadillo.obj", false, true); // force ignore normals (TODO: generate them ourselves)
 	if (m_model->hasTexture) m_model->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
 	//m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 	meshObjects.push_back(m_model);
@@ -400,16 +401,13 @@ void Program::mainLoop() {
 
 
 //REFERENCES:
-// https://math.stackexchange.com/questions/9819/area-of-a-spherical-triangle
-// https://www.quora.com/What-is-the-surface-area-of-a-spherical-triangle-of-which-I-know-the-lenghths-of-arcs-which-form-the-triangle-and-the-radius-of-the-sphere
-// http://mathworld.wolfram.com/SphericalTriangle.html
-// http://mathworld.wolfram.com/SphericalTrigonometry.html
-//NOTE: there might be a bug here cause the 2nd tap of the button adds extra memory for some reason (its like 3MB extra)
+// https://www.cse.wustl.edu/~taoju/research/meanvalue.pdf
+// I followed the "Robust" algorithm outlined in the above paper
+//TODO: check if more safety cases need to be added for protecting from divide by 0 and resulting -nan
 //TODO: safety checking might have to be added, or otherwise make sure the calculation still works if cage face is less than 1 unit from model (does the unit sphere need to be shrunk more?)
-//TODO: i did fix a bug where some weights were -nan due to the sqrt(<0) since I used the wrong formula for s (i forgot to divide by 2). so, more testing needs to be done to ensure this doesnt happen again
-//NOTE: right now, idk how this behaves with per-face normals, I would like if the models were only per-vertex normals (thus every vertex is unique)
 //TODO: implement HC/GC weights
 // this method computes the vector of cage vertex weights for every model vertex, in the current orientation of both meshes
+//TODO: OPTIMIZE THIS BY CACHING SOME OF THE REUSED CALCULATIONS
 void Program::computeCageWeights() {
 	
 	// cleanup...
@@ -426,79 +424,123 @@ void Program::computeCageWeights() {
 	// compute new weights based on set coord type...
 
 	if (CoordinateTypes::MVC == m_coordinateType) {
+
 		// compute vertWeights...
 
-		// process...
-		// 1. foreach model vert, compute the vector of cage vert weights
-		// - assume we have model vert i and cage face f,
-		// - project a unit sphere centered on i
-		// - project the triangular face f onto the surface of the unit sphere
-		// - calculate the spherical triangle area and save that as partial weight for points 1,2,3 making up f
-
-		//TODO: make sure the indexing makes sense
-		//TODO?: change the notation later
-		//TODO: edge cage error checking
+		// foreach model vert...
 		for (unsigned int i = 0; i < m_model->drawVerts.size(); ++i) {
 
 			// init the cage vert weights vector for model vert i...
 			std::vector<float> u_i(m_cage->drawVerts.size(), 0.0f);
 
-			//NOTE: since we are using a unit sphere (R=1), the radius will be implicit in all calculations
-			glm::vec3 const sphereOrigin = m_model->drawVerts.at(i);
+			glm::vec3 const x = m_model->drawVerts.at(i); // (sphere origin)
 
 			// foreach triangle face in cage mesh...
 			for (unsigned int f = 0; f < m_cage->drawFaces.size(); f += 3) {
 
 				// save the 3 cage vert indices making up cage face f...
-				unsigned int const a_index = m_cage->drawFaces.at(f);
-				unsigned int const b_index = m_cage->drawFaces.at(f+1);
-				unsigned int const c_index = m_cage->drawFaces.at(f+2);
+				unsigned int const p1_index = m_cage->drawFaces.at(f);
+				unsigned int const p2_index = m_cage->drawFaces.at(f+1);
+				unsigned int const p3_index = m_cage->drawFaces.at(f+2);
 
 				// get the 3 cage vert positions...
-				glm::vec3 const a_pos = m_cage->drawVerts.at(a_index);
-				glm::vec3 const b_pos = m_cage->drawVerts.at(b_index);
-				glm::vec3 const c_pos = m_cage->drawVerts.at(c_index);
+				glm::vec3 const p1 = m_cage->drawVerts.at(p1_index);
+				glm::vec3 const p2 = m_cage->drawVerts.at(p2_index);
+				glm::vec3 const p3 = m_cage->drawVerts.at(p3_index);
 
-				// find the projected 3 points on unit sphere to make up spherical triangle whose area we need
-				// I find the intersection vector from sphere origin directed towards triangle point (not other direction, in case the triangle happens to be within sphere somehow)
-				// thus we will only ever have exactly 1 intersection point with a positive scalar value of R=1
+				float const d1 = glm::length(p1 - x);
+				float const d2 = glm::length(p2 - x);
+				float const d3 = glm::length(p3 - x);
 
-				// all 3 of these positions will be relative to the sphere origin (thus all lengths should be R=1)
-				glm::vec3 const a_proj_pos = glm::normalize(a_pos - sphereOrigin);
-				glm::vec3 const b_proj_pos = glm::normalize(b_pos - sphereOrigin);
-				glm::vec3 const c_proj_pos = glm::normalize(c_pos - sphereOrigin);
+				//TODO: ...
+				//TODO: ... (i'm thinking give it a weight of 1 and enter a special mode (if mode is false, then set true) - since this cage vert is basically located at model vert, it should get highest influence
+				// PREVENTS DIVIDE BY ZERO (since we would be trying to normalize the zero vector which is undefined)
+				if (d1 < glm::epsilon<float>()) {
+					//return? or continue? or something else?
+					return;
+				}
+				if (d2 < glm::epsilon<float>()) {
+					//return? or continue? or something else?
+					return;
+				}
+				if (d3 < glm::epsilon<float>()) {
+					//return? or continue? or something else?
+					return;
+				}
 
-				// apply formula...
-				// explanation...
-				// 1. a is the angle between b_proj_pos (origin to spherical tri point b) and c_proj_pos (origin to spherical tri point c)
-				// we know the formula for the dot product as... b_proj_pos dot c_proj_pos = ||b_proj_pos|| * ||c_proj_pos|| * cos(a)
-				// rearrange the formula to get the angle a, noting that both lengths are R=1 and factored out
-				// 2. next, we need to get the corresponding arc length of 1 side of the spherical triangle
-				// the general formula for an angle theta in radians is of course, ARCLENGTH = R*theta
-				// but, since R=1, ARCLENGTH = theta, thus we can just use the angles a,b,c as the arclengths
-				// 3. next, we need to calculate s which is the SEMI-PERIMETER of the spherical triangle arclengths (so perimeter = a+b+c) divided by 2
+				glm::vec3 const u1 = (p1 - x) / d1; // p1 projected on unit sphere centered at x
+				glm::vec3 const u2 = (p2 - x) / d2; // p2 projected on unit sphere centered at x
+				glm::vec3 const u3 = (p3 - x) / d3; // p3 projected on unit sphere centered at x
 
-				float const a = glm::acos(glm::dot(b_proj_pos, c_proj_pos));
-				float const b = glm::acos(glm::dot(c_proj_pos, a_proj_pos));
-				float const c = glm::acos(glm::dot(a_proj_pos, b_proj_pos));
-				float const s = (a + b + c) / 2;
+				// side-lengths of planar triangle t
+				//NOTE: I believe the length would vary from 0 to 2 (e.g. 2 points on opposite side of unit sphere = R+R = 1+1 = 2)
+				float const l1 = glm::length(u2 - u3);
+				float const l2 = glm::length(u3 - u1);
+				float const l3 = glm::length(u1 - u2);
 
-				//TODO: must make sure that we arent taking a sqrt of a negative number ever and result with a -nan (this was happening since 1 tangent was negative) before i changed s to now div by 2
-				//NOTE: area should always be >=0 of course, thus it should follow that all weights will be >=0
-				//TODO?: should I clamp the weights above 0 just to be safe? - there could be some numerical error in floats, for really small weights
-				// 4. calculate the area of the spherical triangle from this formula based on the side lengths (arcs)
-				// this formula is to actually calculate the spherical excess E = 4 * ...
-				// but, since the area of the spherical triangle is given by AREA = E * R^2 (and R=1), so AREA = E = 4 * ...
-				float const area = 4 * glm::atan(glm::sqrt(glm::tan(s / 2) * glm::tan((s - a) / 2) * glm::tan((s - b) / 2) * glm::tan((s - c) / 2)));
+				// arc-lengths of spherical triangle t_sph (equivalent to angles since R=1)
+				//NOTE: I believe these angles/lengths will be between 0 and pi
+				float const theta1 = 2 * glm::asin(l1 / 2);
+				float const theta2 = 2 * glm::asin(l2 / 2);
+				float const theta3 = 2 * glm::asin(l3 / 2);
 
-				//NOTE: I don't believe there's a need to avg by number of faces that vert is appart of. A vert should have its weight set based on the sum of all face areas its connected to since these faces get modified when this vert gets modified
-				// 5. each vert gets this extra weight
-				u_i.at(a_index) += area;
-				u_i.at(b_index) += area;
-				u_i.at(c_index) += area;
+				// safety (handle if a length happens to be very small (< 2*epsilon) (I guess the area would be 0 and thus influence by this face would be 0, thus just continue?))
+				// PREVENTS DIVIDE BY ZERO (since asin(0/2) = 0, thus theta = 0, which then cause a sin(0) in denominator for a c_i calculation
+				if (theta1 < glm::epsilon<float>() || theta2 < glm::epsilon<float>() || theta3 < glm::epsilon<float>()) continue;
+
+				// half-angle (Beyer)
+				//NOTE: assume a scenario where u1,u2,u3 form a planar triangle that cuts through the center (x) of the unit sphere (and recall that they are all on the surface of the sphere at R=1).
+				//NOTE: now assume we have a configuration like
+				// u1-R-x-R-u3
+				//   \  |  /
+				//    \ R /
+				//     \|/
+				//     u2
+				// the planar triangle lengths would be l1 = l3 = sqrt(2*R^2) = sqrt(2) and l2 = 2*R = 2
+				// thus, we would get theta1 + theta2 + theta3 = 2 * [asin(sqrt(2) / 2) + asin(1) + asin(sqrt(2) / 2)] = 2 * [pi/4 + pi/2 + pi/4] = 2 * [pi]
+				//NOTE: thus, I think h will be in range [1.5 * epsilon, pi]
+				float const h = (theta1 + theta2 + theta3) / 2;
+				if (glm::pi<float>() - h < glm::epsilon<float>()) {
+					// center of sphere point x lies on triangle t (use 2D barycentric coords)
+
+					std::fill(u_i.begin(), u_i.end(), 0.0f); // reset weights vector back to all zeros
+
+					//NOTE: only this face will have an influence on model vert_i (x)
+					u_i.at(p1_index) = glm::sin(theta1) * d3 * d2;
+					u_i.at(p2_index) = glm::sin(theta2) * d1 * d3;
+					u_i.at(p3_index) = glm::sin(theta3) * d2 * d1;
+					break; // no need to check any other faces
+				}
+
+				//NOTE: I was having a bug where some faces were missing due to one of these cosines (c1,c2,c3) being something like 1.000024 which squared is > 1 and thus causes a sqrt(<0) at one of s1,s2,s3 resulting in a -nan
+				//FIX: clamp the cosines between the mathmetical range of -1 to 1
+				//NOTE: I'm not sure if clamping is the right thing to do, or if it should be an error or something, but I think its just float imprecision causing it and the program seems to work...
+				
+				// cosines of the spherical triangle angles (diheral angles)
+				float const c1 = glm::clamp((2 * glm::sin(h)*glm::sin(h - theta1)) / (glm::sin(theta2)*glm::sin(theta3)) - 1, -1.0f, 1.0f);
+				float const c2 = glm::clamp((2 * glm::sin(h)*glm::sin(h - theta2)) / (glm::sin(theta3)*glm::sin(theta1)) - 1, -1.0f, 1.0f);
+				float const c3 = glm::clamp((2 * glm::sin(h)*glm::sin(h - theta3)) / (glm::sin(theta1)*glm::sin(theta2)) - 1, -1.0f, 1.0f);
+
+				//TODO: add any error checking or comments for below???
+				glm::mat3 const uMat = glm::mat3(u1, u2, u3);
+				float const det = glm::determinant(uMat);
+				
+				float const s1 = glm::sign(det) * glm::sqrt(1 - c1 * c1);
+				float const s2 = glm::sign(det) * glm::sqrt(1 - c2 * c2);
+				float const s3 = glm::sign(det) * glm::sqrt(1 - c3 * c3);
+
+				// if sphere origin (x) lies on same plane as triangle t, but lies outside triangle, then we ignore this face (since projection would be a curve of zero area and thus have 0 weight)
+				if (glm::abs(s1) <= glm::epsilon<float>() || glm::abs(s2) <= glm::epsilon<float>() || glm::abs(s3) <= glm::epsilon<float>()) continue; // continue to next face
+
+				// update the weights of each of the 3 cage verts making up this face affecting the model vert_i (x) by accumulation
+				u_i.at(p1_index) += (theta1 - c2 * theta3 - c3 * theta2) / (d1 * glm::sin(theta2) * s3);
+				u_i.at(p2_index) += (theta2 - c3 * theta1 - c1 * theta3) / (d2 * glm::sin(theta3) * s1);
+				u_i.at(p3_index) += (theta3 - c1 * theta2 - c2 * theta1) / (d3 * glm::sin(theta1) * s2);
 			}
 
 			// 6. normalize the weights vector (sum of all elements = 1) for affine property
+
+			//TODO: since, we can have negative weights, isn't it possible that totalW could be 0?
 
 			float totalW = 0.0f;
 			for (unsigned int j = 0; j < u_i.size(); ++j) {
