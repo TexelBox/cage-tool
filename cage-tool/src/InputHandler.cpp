@@ -19,19 +19,22 @@ void InputHandler::key(GLFWwindow *window, int key, int scancode, int action, in
 
 	if (GLFW_PRESS == action || GLFW_REPEAT == action) { // key press, or press & hold
 		
-		//TODO: call prorgam's translateSelectedVerts(), passing in the proper direction for each
+		//TODO: figure out better way to control the delta of translation (e.g. automatic based on zoom level? by user control in imgui?
+
+		float const delta = 1.0f;
+
 		if (GLFW_KEY_W == key) {
-			//renderEngine->updateLightPos(glm::vec3(0.0, 0.1, 0.0));
+			program->translateSelectedCageVerts(glm::vec3(0.0f, delta, 0.0f));
 		} else if (GLFW_KEY_S == key) {
-			//renderEngine->updateLightPos(glm::vec3(0.0, -0.1, 0.0));
-		} else if (GLFW_KEY_A == key) {
-			//renderEngine->updateLightPos(glm::vec3(-0.1, 0.0, 0.0));
+			program->translateSelectedCageVerts(glm::vec3(0.0f, -delta, 0.0f));
 		} else if (GLFW_KEY_D == key) {
-			//renderEngine->updateLightPos(glm::vec3(0.1, 0.0, 0.0));
+			program->translateSelectedCageVerts(glm::vec3(delta, 0.0f, 0.0f));
+		} else if (GLFW_KEY_A == key) {
+			program->translateSelectedCageVerts(glm::vec3(-delta, 0.0f, 0.0f));
 		} else if (GLFW_KEY_E == key) {
-			//renderEngine->updateLightPos(glm::vec3(0.0, 0.0, 0.1));
+			program->translateSelectedCageVerts(glm::vec3(0.0f, 0.0f, delta));
 		} else if (GLFW_KEY_Q == key) {
-			//renderEngine->updateLightPos(glm::vec3(0.0, 0.0, -0.1));
+			program->translateSelectedCageVerts(glm::vec3(0.0f, 0.0f, -delta));
 		} else if (GLFW_KEY_ESCAPE == key) glfwSetWindowShouldClose(window, GL_TRUE);
 	}
 }
