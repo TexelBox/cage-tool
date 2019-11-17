@@ -13,14 +13,14 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - MeshObject method that computes per-face normals
 - MeshObject method that computes per-vertex normals (preferably angle-weighted), uses per-face normals
 -
-- Program method that translates all selected cage verts by same translation vector
-- simple key events that translate selected cage verts, use above method, call deformModel()
-- update deformModel() to call the compute-normals method and then call updateBuffers(MODEL)
+- update deformModel() to call the compute-normals method and then change updateBuffers(MODEL) to update normal buffer as well
 -
 - test the MVC weight computing for different model-cage pairs
 - test the MVC deformation for different model-cage pairs
 -
 - **VERY IMPORTANT**: implement some coarse cage-generation techniques (e.g. improved OBBs method, normals, mesh-simplification, cutting planes, user-tracing, etc.)
+-
+- add improved manners of user-interaction for transforming the cage (e.g. view-plane translation, movement along normals (per vertex? per face?), face extrusion/intrusion, etc.)
 -
 - port to Linux (Makefile?)
 
@@ -35,6 +35,7 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - add an imgui window that serves as an output log (debug msgs, error msgs, user info, etc.)
 - undo/redo functionality
 - support for other file formats beside Wavefront OBJ, maybe even support for non-tri meshes
+- support for animation (run through deformed model poses)
 - ...
 - closer to release, decide on a LICENSE, include copy of every dependency licenses
 - port to macOS?
@@ -44,3 +45,4 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - boilerplate provided from https://pages.cpsc.ucalgary.ca/~mmactavi/589/
 - inspiration from https://github.com/cordafab/Cagelab2018
 - source of a potential cage-generation technique - http://www.cad.zju.edu.cn/home/hwlin/pdf_files/Automatic-cage-generation-by-improved-OBBs-for-mesh-deformation.pdf
+- mean-value-coordinate weight computing algorithm sourced from https://www.cse.wustl.edu/~taoju/research/meanvalue.pdf
