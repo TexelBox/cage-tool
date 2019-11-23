@@ -289,6 +289,6 @@ void RenderEngine::updateLightPos(glm::vec3 add) {
 
 // Sets projection and viewport for new width and height
 void RenderEngine::setWindowSize(int width, int height) {
-	projection = glm::perspective(45.0f, (float)width / height, 0.01f, 100.0f);
+	projection = glm::perspective(45.0f, (float)width / height, 0.01f, 2000.0f);
 	glViewport(0, 0, width, height);
 }
