@@ -75,12 +75,22 @@ void Program::setupWindow() {
     ImGui_ImplOpenGL3_Init(glsl_version);
 }
 
-// Loads an object from a .obj file. Can support textures.
-//TODO: right now this initializes all our objects, but some of this initialization (model+cage) should be performed through user interaction (e.g. load obj file from disk)
-void Program::createTestMeshObject() {
-	
+
+//NOTE: this method should only be called ONCE at start
+void Program::initScene() {
+
+	// SAFETY...
+	meshObjects.clear();
+	m_yzPlane = nullptr;
+	m_xzPlane = nullptr;
+	m_xyPlane = nullptr;
+	m_model = nullptr;
+	m_cage = nullptr;
+
+	// CREATE THE 3 PLANES...
+
 	// draw a symmetrical grid for each cartesian plane...
-	
+
 	//NOTE: compare this to far clipping plane distance of 2000
 	//NOTE: all these should be the same
 	int const maxX = 500;
@@ -156,41 +166,97 @@ void Program::createTestMeshObject() {
 	m_xyPlane->m_primitiveMode = PrimitiveMode::LINES;
 	meshObjects.push_back(m_xyPlane);
 	renderEngine->assignBuffers(*m_xyPlane);
-
-	// MODEL
-
-	m_model = ObjectLoader::createTriMeshObject("models/armadillo-with-normals.obj");
-	//m_model = ObjectLoader::createTriMeshObject("models/armadillo.obj", false, true); // force ignore normals (TODO: generate them ourselves)
-	if (m_model->hasTexture) m_model->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
-	//m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
-	meshObjects.push_back(m_model);
-	renderEngine->assignBuffers(*m_model);
-
-	// CAGE
-
-	m_cage = ObjectLoader::createTriMeshObject("models/armadillo_cage.obj", true, true); // force ignore both uvs and normals if present in file
-	
-	// set cage black and also set picking colours...
-	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
-		// render colour...
-		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
-		
-		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
-		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
-		// picking colour...
-		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
-		unsigned int const r = (i & 0x000000FF) >> 0;
-		unsigned int const g = (i & 0x0000FF00) >> 8;
-		unsigned int const b = (i & 0x00FF0000) >> 16;
-		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
-	}
-	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
-	m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
-
-	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
-	meshObjects.push_back(m_cage);
-	renderEngine->assignBuffers(*m_cage);
 }
+
+
+void Program::clearModel() {
+	if (nullptr == m_model) return;
+
+	// find model in meshObjects and delete it...
+	for (unsigned int i = 0; i < meshObjects.size(); ++i) {
+		if (meshObjects.at(i) == m_model) {
+			meshObjects.at(i) = nullptr;
+			meshObjects.erase(meshObjects.begin() + i);
+			break;
+		}
+	}
+
+	m_model = nullptr;
+
+	// vertWeights have now been invalidated, so clear them
+	m_vertWeights.clear();
+}
+
+
+void Program::clearCage() {
+	if (nullptr == m_cage) return;
+
+	// find cage in meshObjects and delete it...
+	for (unsigned int i = 0; i < meshObjects.size(); ++i) {
+		if (meshObjects.at(i) == m_cage) {
+			meshObjects.at(i) = nullptr;
+			meshObjects.erase(meshObjects.begin() + i);
+			break;
+		}
+	}
+
+	m_cage = nullptr;
+
+	// vertWeights have now been invalidated, so clear them
+	m_vertWeights.clear();
+}
+
+
+void Program::loadModel(std::string const& filePath) {
+
+	std::shared_ptr<MeshObject> newModel = ObjectLoader::createTriMeshObject(filePath, false, true); // force ignore normals (TODO: generate them ourselves)
+	if (nullptr != newModel) {
+		// remove any old model...
+		clearModel();
+
+		// init new model...
+		m_model = newModel;
+		if (m_model->hasTexture) m_model->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
+		//m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+		meshObjects.push_back(m_model);
+		renderEngine->assignBuffers(*m_model);
+	}
+}
+
+
+void Program::loadCage(std::string const& filePath) {
+
+	std::shared_ptr<MeshObject> newCage = ObjectLoader::createTriMeshObject(filePath, true, true); // force ignore both uvs and normals if present in file
+	if (nullptr != newCage) {
+		// remove any old cage...
+		clearCage();
+
+		// init new cage...
+		m_cage = newCage;
+
+		// set cage black and also set picking colours...
+		for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+			// render colour...
+			m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+			// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+			// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+			// picking colour...
+			//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+			unsigned int const r = (i & 0x000000FF) >> 0;
+			unsigned int const g = (i & 0x0000FF00) >> 8;
+			unsigned int const b = (i & 0x00FF0000) >> 16;
+			m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+		}
+		m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
+		m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+		//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+		meshObjects.push_back(m_cage);
+		renderEngine->assignBuffers(*m_cage);
+	}
+}
+
 
 void Program::drawUI() {
 	// Start the Dear ImGui frame
@@ -208,17 +274,22 @@ void Program::drawUI() {
 
 		ImGui::Separator();
 
-		if (ImGui::Button("TOGGLE YZ-PLANE (RED)")) m_yzPlane->m_isVisible = !m_yzPlane->m_isVisible;
-		ImGui::SameLine();
-		if (ImGui::Button("TOGGLE XZ-PLANE (GREEN)")) m_xzPlane->m_isVisible = !m_xzPlane->m_isVisible;
-		ImGui::SameLine();
-		if (ImGui::Button("TOGGLE XY-PLANE (BLUE)")) m_xyPlane->m_isVisible = !m_xyPlane->m_isVisible;
-		ImGui::SameLine();
-		ImGui::Text("	note: grid spacing is 10 units");
-
-		ImGui::Separator();
-
-
+		if (nullptr != m_yzPlane) {
+			if (ImGui::Button("TOGGLE YZ-PLANE (RED)")) m_yzPlane->m_isVisible = !m_yzPlane->m_isVisible;
+			ImGui::SameLine();
+		}
+		if (nullptr != m_xzPlane) {
+			if (ImGui::Button("TOGGLE XZ-PLANE (GREEN)")) m_xzPlane->m_isVisible = !m_xzPlane->m_isVisible;
+			ImGui::SameLine();
+		}
+		if (nullptr != m_yzPlane) {
+			if (ImGui::Button("TOGGLE XY-PLANE (BLUE)")) m_xyPlane->m_isVisible = !m_xyPlane->m_isVisible;
+			ImGui::SameLine();
+		}
+		if (nullptr != m_yzPlane || nullptr != m_xzPlane || nullptr != m_yzPlane) {
+			ImGui::Text("	note: grid spacing is 10 units");
+			ImGui::Separator();
+		}
 
 		//TODO: optimize this in the future (e.g. only update position/rotation/scale if a field changed)
 		//NOTE: for some reason (maybe by design), the IMGUI label names must be unique otherwise editing 1 also changes any others with same label
@@ -282,7 +353,7 @@ void Program::drawUI() {
 
 			ImGui::PopItemWidth();
 		}
-		
+
 		//NOTE: might not even have this for cage since it will have to surround the model anyway
 		if (nullptr != m_cage) {
 			ImGui::Text("CAGE");
@@ -343,7 +414,7 @@ void Program::drawUI() {
 			ImGui::InputFloat("z##5", &zScale);
 			m_cage->setScale(glm::vec3(m_cage->getScale().x, m_cage->getScale().y, zScale));
 
-			
+
 			ImGui::Separator();
 
 			ImGui::PopItemWidth();
@@ -352,11 +423,44 @@ void Program::drawUI() {
 		if (nullptr != m_model && nullptr != m_cage) {
 			if (m_vertWeights.empty()) {
 				if (ImGui::Button("COMPUTE CAGE WEIGHTS")) computeCageWeights();
-			} else {
+			}
+			else {
 				if (ImGui::Button("CLEAR CAGE WEIGHTS")) m_vertWeights.clear();
 			}
 			ImGui::Separator();
 		}
+
+		if (nullptr != m_model) {
+			if (ImGui::Button("CLEAR MODEL")) clearModel();
+		} else {
+			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
+			unsigned int const maxFileNameLength = 256;
+			char filename[maxFileNameLength] = "";
+			ImGuiInputTextFlags const flags = ImGuiInputTextFlags_EnterReturnsTrue;
+			ImGui::Text("LOAD MODEL");
+			ImGui::Text(".../models/imports/");
+			ImGui::SameLine();
+			if (ImGui::InputText(".obj##0", filename, IM_ARRAYSIZE(filename), flags)) {
+				loadModel("models/imports/" + std::string(filename) + ".obj");
+			}
+		}
+		ImGui::Separator();
+
+		if (nullptr != m_cage) {
+			if (ImGui::Button("CLEAR CAGE")) clearCage();
+		} else {
+			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
+			unsigned int const maxFileNameLength = 256;
+			char filename[maxFileNameLength] = "";
+			ImGuiInputTextFlags const flags = ImGuiInputTextFlags_EnterReturnsTrue;
+			ImGui::Text("LOAD CAGE");
+			ImGui::Text(".../models/imports/");
+			ImGui::SameLine();
+			if (ImGui::InputText(".obj##1", filename, IM_ARRAYSIZE(filename), flags)) {
+				loadCage("models/imports/" + std::string(filename) + ".obj");
+			}
+		}
+		ImGui::Separator();
 
 		ImGui::End();
 	}
@@ -366,7 +470,7 @@ void Program::drawUI() {
 // Main loop
 void Program::mainLoop() {
 
-	createTestMeshObject();
+	initScene();
 
 	// Our state
 	clearColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); //NOTE: keep this white since it has the least chance of interfering with color picking (due to being the last possible color that can be generated)

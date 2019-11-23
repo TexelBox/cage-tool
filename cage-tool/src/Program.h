@@ -58,7 +58,11 @@ private:
 	void mainLoop();
 	void drawUI();
 
-	void createTestMeshObject();
+	void initScene();
+	void clearModel();
+	void clearCage();
+	void loadModel(std::string const& filePath);
+	void loadCage(std::string const& filePath);
 
 
 	std::shared_ptr<MeshObject> m_yzPlane = nullptr;
