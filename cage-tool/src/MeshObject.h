@@ -89,6 +89,8 @@ public:
 
 	glm::mat4 getModel() const { return m_model; }
 
+	void generateNormals();
+
 private:
 
 	// these will represent exactly the values seen by the user in the UI (thus we use degrees since they're more user-friendly)...

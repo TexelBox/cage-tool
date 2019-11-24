@@ -217,6 +217,7 @@ void Program::loadModel(std::string const& filePath) {
 		// init new model...
 		m_model = newModel;
 		if (m_model->hasTexture) m_model->textureID = renderEngine->loadTexture("textures/default.png"); // apply default texture (if there are uvs)
+		m_model->generateNormals();
 		//m_model->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 		meshObjects.push_back(m_model);
 		renderEngine->assignBuffers(*m_model);
@@ -719,9 +720,9 @@ void Program::deformModel() {
 		m_model->drawVerts.at(i) = c_i; // update
 	}
 
-	//TODO: call the recompute normals method on MODEL and then pass true as the updateNormals param to updateBuffers()
-
-	renderEngine->updateBuffers(*m_model, true, false, false, false);
+	// recompute the model's normals now that its verts have changed... 
+	m_model->generateNormals();
+	renderEngine->updateBuffers(*m_model, true, false, true, false);
 }
 
 
