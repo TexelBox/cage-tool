@@ -20,21 +20,21 @@ void main(void) {
 	UV = uv;
 
 	// Put light in camera space
-	vec4 lightCameraSpace = modelView * vec4(lightPos, 1.0);
+	vec4 lightCameraSpace = modelView * vec4(lightPos, 1.0f);
 	
 	// Put normal in camera space (no non-uniform scaling so we can use just modelView)
-	vec4 nCameraSpace = modelView * vec4(normal, 0.0);
+	vec4 nCameraSpace = modelView * vec4(normal, 0.0f);
 	N = normalize(nCameraSpace.xyz);
 
 	// Transform model and put in camera space
-    vec4 pCameraSpace = modelView * vec4(vertex, 1.0); 
+	vec4 pCameraSpace = modelView * vec4(vertex, 1.0f);
 	vec3 P = pCameraSpace.xyz;
 	
 	// Calculate L and V vectors
 	L = normalize(lightCameraSpace.xyz - P);
 	V = normalize(-P);
 	
-    gl_Position = projection * pCameraSpace;
+	gl_Position = projection * pCameraSpace;
 	
-	COLOUR = colour; 
+	COLOUR = colour;
 }

@@ -85,6 +85,7 @@ void RenderEngine::render(std::vector<std::shared_ptr<MeshObject>> const& object
 		glUniform3fv(glGetUniformLocation(mainProgram, "lightPos"), 1, glm::value_ptr(camera->getPosition()));
 
 		glUniform1i(glGetUniformLocation(mainProgram, "hasTexture"), o->hasTexture);
+		glUniform1i(glGetUniformLocation(mainProgram, "hasNormals"), !o->normals.empty());
 
 		// POINT, LINE or FILL...
 		glPolygonMode(GL_FRONT_AND_BACK, o->m_polygonMode);
