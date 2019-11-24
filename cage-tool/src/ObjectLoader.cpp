@@ -114,6 +114,9 @@ bool ObjectLoader::loadTriMeshOBJ(std::string const& filePath, std::vector<glm::
 				glm::vec2 uv;
 				uv.x = std::stof(words.at(0));
 				uv.y = std::stof(words.at(1));
+				//TODO: could add error checking here to make sure both U and V are in range [0.0f, 1.0f]
+				uv.y *= -1; //NOTE: MUST FLIP THE V COORD HERE!
+				//uv.y = 1.0f - uv.y; //NOTE: this seems to work as well, but i'll go with the above fix since it was present in old obj loader
 				out_uvs.push_back(uv);
 			}
 			catch (...) { // catch-all (cannot convert or range violation)
@@ -138,6 +141,7 @@ bool ObjectLoader::loadTriMeshOBJ(std::string const& filePath, std::vector<glm::
 				normal.x = std::stof(words.at(0));
 				normal.y = std::stof(words.at(1));
 				normal.z = std::stof(words.at(2));
+				//TODO: do I need to add error checking for 1. zero vector? 2. non-normalized vector?
 				out_normals.push_back(normal);
 			}
 			catch (...) { // catch-all (cannot convert or range violation)
