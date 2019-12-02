@@ -1,5 +1,7 @@
 #include "Program.h"
 
+#include <Eigen/Dense>
+#include <glm/gtx/norm.hpp>
 
 // STATICS (INIT)...
 glm::vec3 const Program::s_CAGE_UNSELECTED_COLOUR = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -450,6 +452,10 @@ void Program::drawUI() {
 		if (nullptr != m_cage) {
 			if (ImGui::Button("CLEAR CAGE")) clearCage();
 		} else {
+			if (nullptr != m_model) {
+				if (ImGui::Button("GENERATE CAGE")) generateCage();
+			}
+			
 			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
 			unsigned int const maxFileNameLength = 256;
 			char filename[maxFileNameLength] = "";
@@ -806,4 +812,218 @@ void Program::translateSelectedCageVerts(glm::vec3 const& translation) {
 		//TODO: add in call to deformModel() if its not null
 		deformModel();
 	}
+}
+
+
+
+// SIMILAR TO IMPROVED OBB METHOD (XIAN, LIN, GAO)...
+// reference: http://www.cad.zju.edu.cn/home/hwlin/pdf_files/Automatic-cage-generation-by-improved-OBBs-for-mesh-deformation.pdf
+// reference: http://www-home.htwg-konstanz.de/~umlauf/Papers/cagesurvSinCom.pdf
+// reference: https://hewjunwei.wordpress.com/2013/01/26/obb-generation-via-principal-component-analysis/
+void Program::generateCage() {
+	if (nullptr == m_model) return;
+
+	// 1. extract set of model verts (eliminate duplicates)...
+	std::vector<glm::vec3> pointSetM;
+	for (glm::vec3 const& p : m_model->drawVerts) {
+		auto it = std::find(pointSetM.begin(), pointSetM.end(), p);
+		if (pointSetM.end() == it) { // new unique point
+			pointSetM.push_back(p);
+		}
+	}
+
+	// 2. generate initial OBB O of pointSetM using Principal Component Analysis...
+
+	// low covariance of 2 values means more independent (less correlated)
+	// covariance(x,x) = variance(x)
+	// covariance matrix A generalizes the concept of variance in multiple dimensions
+	// we want to diagonalize the covariance matrix to make signals strong (big diagonal entries) and distortions weak (low (in this case 0) off-diagonal entries)
+	// A is REAL and SYMMETRIC ===> guaranteed to have 3 eigenvectors in the similarity transformation (change of basis matrix) when we diagonalize A.
+	// THE 3 EIGENVECTORS OF COVARIANCE MATRIX WILL MAKE UP ORIENTATION OF OBB
+	// large eigenvalues mean large variance, thus align OBB along eigenvector corresponding to largest eigenvalue
+
+	//TODO: could improve this algo by working on the convex hull points only (but it might not be worth it)
+	//TODO: could improve this program by using a more exact OBB method (slower) for low vert count models.
+
+	// reference: https://stackoverflow.com/questions/6189229/creating-oobb-from-points
+	// 3. compute centroid mu of points...
+	glm::vec3 mu = glm::vec3(0.0f, 0.0f, 0.0f);
+	for (glm::vec3 const& p : pointSetM) {
+		mu += p;
+	}
+	mu /= pointSetM.size();
+
+	// 4. compute covariance matrix...
+	glm::mat3 covarianceMatrix = glm::mat3(0.0f);
+	for (glm::vec3 const& p : pointSetM) {
+		glm::vec3 const dev = p - mu;
+		glm::mat3 const covMat_i = glm::outerProduct(dev, dev); // dev * (dev)^T
+		covarianceMatrix += covMat_i;
+	}
+	//NOTE: this matrix should be REAL and SYMMETRIC
+
+	// 5. get sorted eigenvalues (ascending) + corresponding eigenvectors...
+	
+	// convert matrix form (glm -> eigen) to work with eigensolver...
+	Eigen::Matrix3f covMatEigen;
+	for (unsigned int i = 0; i < covarianceMatrix.length(); ++i) { // loop over columns
+		for (unsigned int j = 0; j < covarianceMatrix[i].length(); ++j) { // loop over rows
+			covMatEigen(j, i) = covarianceMatrix[i][j]; //NOTE: eigen(row, col) vs glm(col, row)
+		}
+	}
+
+	// reference: https://stackoverflow.com/questions/50458712/c-find-eigenvalues-and-eigenvectors-of-matrix
+	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> eigenSolver;
+	eigenSolver.compute(covMatEigen);
+	Eigen::Vector3f eigenValues = eigenSolver.eigenvalues(); //NOTE: eigenvalues come sorted in ascending order
+	Eigen::Matrix3f eigenVectors = eigenSolver.eigenvectors(); //NOTE: eigenvectors come sorted corresponding to returned eigenvalues and are normalized. This returned matrix also corresponds to P in the diagonalization formula A = P*D*P^-1. Here A =:= covariance matrix
+
+	// convert eigenvector forms (eigen -> glm)...
+	glm::vec3 eigenV1 = glm::vec3(eigenVectors(0, 0), eigenVectors(1, 0), eigenVectors(2, 0));
+	glm::vec3 eigenV2 = glm::vec3(eigenVectors(0, 1), eigenVectors(1, 1), eigenVectors(2, 1));
+	glm::vec3 eigenV3 = glm::vec3(eigenVectors(0, 2), eigenVectors(1, 2), eigenVectors(2, 2));
+
+	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
+	float minScalarAlongV1 = std::numeric_limits<float>::max();
+	float maxScalarAlongV1 = std::numeric_limits<float>::min();
+	float minScalarAlongV2 = std::numeric_limits<float>::max();
+	float maxScalarAlongV2 = std::numeric_limits<float>::min();
+	float minScalarAlongV3 = std::numeric_limits<float>::max();
+	float maxScalarAlongV3 = std::numeric_limits<float>::min();
+	for (glm::vec3 const& p : pointSetM) {
+		// project along eigenV1 axis...
+		float const projScalarV1 = glm::dot(p, eigenV1) / glm::length2(eigenV1);
+		if (projScalarV1 < minScalarAlongV1) minScalarAlongV1 = projScalarV1;
+		if (projScalarV1 > maxScalarAlongV1) maxScalarAlongV1 = projScalarV1;
+
+		// project along eigenV2 axis...
+		float const projScalarV2 = glm::dot(p, eigenV2) / glm::length2(eigenV2);
+		if (projScalarV2 < minScalarAlongV2) minScalarAlongV2 = projScalarV2;
+		if (projScalarV2 > maxScalarAlongV2) maxScalarAlongV2 = projScalarV2;
+
+		// project along eigenV3 axis...
+		float const projScalarV3 = glm::dot(p, eigenV3) / glm::length2(eigenV3);
+		if (projScalarV3 < minScalarAlongV3) minScalarAlongV3 = projScalarV3;
+		if (projScalarV3 > maxScalarAlongV3) maxScalarAlongV3 = projScalarV3;
+	}
+
+	//TODO: the below 2 comments arent very accurate??? so remove them later???
+	//NOTE: now we have 3 mutually orthonormal vectors to form our basis for our local coordinate frame centered at the centroid???...
+	// express all points as position vectors relative to centroid, but still defined in terms of x,y,z...
+
+	// clear old cage if any...
+	clearCage();
+
+	//TODO: piece-together new cage...
+	
+	
+	//TESTING FOR NOW!!!!
+	m_cage = std::make_shared<MeshObject>();
+	m_cage->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+	/*
+	m_cage->drawVerts.push_back(mu - eigenV1 - eigenV2 - eigenV3);
+	m_cage->drawVerts.push_back(mu - eigenV1 - eigenV2 + eigenV3);
+	m_cage->drawVerts.push_back(mu - eigenV1 + eigenV2 - eigenV3);
+	m_cage->drawVerts.push_back(mu - eigenV1 + eigenV2 + eigenV3);
+	m_cage->drawVerts.push_back(mu + eigenV1 - eigenV2 - eigenV3);
+	m_cage->drawVerts.push_back(mu + eigenV1 - eigenV2 + eigenV3);
+	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 - eigenV3);
+	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 + eigenV3);
+	*/
+
+	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+	//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+	// FROM 0 (000)
+
+	m_cage->drawFaces.push_back(0);
+	m_cage->drawFaces.push_back(2);
+	m_cage->drawFaces.push_back(6);
+
+	m_cage->drawFaces.push_back(0);
+	m_cage->drawFaces.push_back(6);
+	m_cage->drawFaces.push_back(4);
+
+	
+	m_cage->drawFaces.push_back(0);
+	m_cage->drawFaces.push_back(1);
+	m_cage->drawFaces.push_back(3);
+
+	m_cage->drawFaces.push_back(0);
+	m_cage->drawFaces.push_back(3);
+	m_cage->drawFaces.push_back(2);
+
+
+	m_cage->drawFaces.push_back(0);
+	m_cage->drawFaces.push_back(4);
+	m_cage->drawFaces.push_back(5);
+
+	m_cage->drawFaces.push_back(0);
+	m_cage->drawFaces.push_back(5);
+	m_cage->drawFaces.push_back(1);
+
+	// FROM 7 (111)
+
+	m_cage->drawFaces.push_back(7);
+	m_cage->drawFaces.push_back(3);
+	m_cage->drawFaces.push_back(1);
+	
+	m_cage->drawFaces.push_back(7);
+	m_cage->drawFaces.push_back(1);
+	m_cage->drawFaces.push_back(5);
+	
+
+	m_cage->drawFaces.push_back(7);
+	m_cage->drawFaces.push_back(5);
+	m_cage->drawFaces.push_back(4);
+
+	m_cage->drawFaces.push_back(7);
+	m_cage->drawFaces.push_back(4);
+	m_cage->drawFaces.push_back(6);
+
+
+	m_cage->drawFaces.push_back(7);
+	m_cage->drawFaces.push_back(6);
+	m_cage->drawFaces.push_back(2);
+
+	m_cage->drawFaces.push_back(7);
+	m_cage->drawFaces.push_back(2);
+	m_cage->drawFaces.push_back(3);
+
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
+	m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
 }

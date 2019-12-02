@@ -79,4 +79,7 @@ private:
 
 	CoordinateTypes m_coordinateType = CoordinateTypes::MVC; // default is MVC
 
+
+	void generateCage();
+
 };
