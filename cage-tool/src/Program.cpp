@@ -907,6 +907,167 @@ void Program::generateCage() {
 		if (projScalarV3 > maxScalarAlongV3) maxScalarAlongV3 = projScalarV3;
 	}
 
+	// 6. compute a cubic voxel size (side length) as the minimum distance between any 2 model verts...
+	//NOTE: this seems like a very bad way of doing this since 2 outlier verts can make voxels really small and consume WAY TOO MUCH RAM
+
+	float minDistance2 = std::numeric_limits<float>::max();
+	for (unsigned int i = 0; i < pointSetM.size()-1; ++i) {
+		for (unsigned int j = i+1; j < pointSetM.size(); ++j) {
+			float const distance2 = glm::distance2(pointSetM.at(i), pointSetM.at(j));
+			if (distance2 < minDistance2) minDistance2 = distance2;
+		}
+	}
+	float const voxelSize = glm::sqrt(minDistance2);
+	//TODO: make sure this is never 0. could clamp lower bound as epsilon or use something like 0.001
+
+	//float const voxelSize = glm::max(glm::sqrt(minDistance2), 0.1f);
+
+	//TESTING THIS...
+	//float const voxelSize = (maxScalarAlongV3 - minScalarAlongV3) / 100;
+	
+
+	// 7. voxelize our OBB into a slightly larger (or if lucky same size) 3D grid of cubes...
+	// this expanded voxelized OBB will have new min/max scalars along each of the 3 basis axes denoting boundaries
+	//NOTE: both the OBB and expanded voxelized-OBB will still have same centroid
+
+	float const midScalarAlongV1 = (minScalarAlongV1 + maxScalarAlongV1) / 2;
+	float const midScalarAlongV2 = (minScalarAlongV2 + maxScalarAlongV2) / 2;
+	float const midScalarAlongV3 = (minScalarAlongV3 + maxScalarAlongV3) / 2;
+
+	unsigned int const voxelCountAlongHalfV1 = glm::ceil((maxScalarAlongV1 - midScalarAlongV1) / voxelSize);
+	unsigned int const voxelCountAlongHalfV2 = glm::ceil((maxScalarAlongV2 - midScalarAlongV2) / voxelSize);
+	unsigned int const voxelCountAlongHalfV3 = glm::ceil((maxScalarAlongV3 - midScalarAlongV3) / voxelSize);
+
+	float const expandedHalfExtentV1 = voxelCountAlongHalfV1 * voxelSize;
+	float const expandedHalfExtentV2 = voxelCountAlongHalfV2 * voxelSize;
+	float const expandedHalfExtentV3 = voxelCountAlongHalfV3 * voxelSize;
+
+	float const expandedMinScalarAlongV1 = midScalarAlongV1 - expandedHalfExtentV1;
+	float const expandedMaxScalarAlongV1 = midScalarAlongV1 + expandedHalfExtentV1;
+	float const expandedMinScalarAlongV2 = midScalarAlongV2 - expandedHalfExtentV2;
+	float const expandedMaxScalarAlongV2 = midScalarAlongV2 + expandedHalfExtentV2;
+	float const expandedMinScalarAlongV3 = midScalarAlongV3 - expandedHalfExtentV3;
+	float const expandedMaxScalarAlongV3 = midScalarAlongV3 + expandedHalfExtentV3;
+
+	// init arrays...
+
+	// coloured voxel array (BLACK =:= OUTER (default), CYAN =:= FEATURE, MAGENTA =:= INNER)
+	// those colours can be assigned later if we want to render the voxels, but for now treat BLACK == 0, CYAN == 1, MAGENTA = 2
+
+	unsigned int const nV1 = 2 * voxelCountAlongHalfV1;
+	unsigned int const nV2 = 2 * voxelCountAlongHalfV2;
+	unsigned int const nV3 = 2 * voxelCountAlongHalfV3;
+
+	// either 0, 1, or 2
+	std::vector<std::vector<std::vector<unsigned int>>> voxelClasses(nV3, std::vector<std::vector<unsigned int>>(nV2, std::vector<unsigned int>(nV1, 0)));
+	//NOTE: below, this 3D array maps voxel [V3][V2][V1] with either glm::vec3(0.0f, 0.0f, 0.0f) or another non-zero vec3.
+	//~~~~~ this vec3 will be non-zero if this voxel is found to be a FEATURE VOXEL (meaning it has intersected at least 1 triangle face of model).
+	//~~~~~ if this feature voxel is found to intersect multiple triangle faces, then this vec3 is taken as the trivial average of the face normals (normalized sum of them)
+	std::vector<std::vector<std::vector<glm::vec3>>> voxelIntersectedFaceAvgNormals(nV3, std::vector<std::vector<glm::vec3>>(nV2, std::vector<glm::vec3>(nV1, glm::vec3(0.0f, 0.0f, 0.0f))));
+
+	// 8. CLASSIFY FEATURE VOXELS...
+
+	// perform an intersection test between every voxel (cube) and every model face (triangle)...
+	// if intersection is found, then we flag voxelClass as 1 (FEATURE) and add faceNormal contribution
+
+	// CUBE-TRIANGLE INTERSECTION TEST...
+	// reference: http://www.realtimerendering.com/resources/GraphicsGems/gemsiii/triangleCube.c
+
+/*
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				// intersection test voxel[i][j][k] against every triangle face in model...
+
+				// first, get 6 scalar bounds (of cube faces)...
+
+				float const minBoundV1 = k * voxelSize + expandedMinScalarAlongV1;
+				float const maxBoundV1 = (k + 1) * voxelSize + expandedMinScalarAlongV1;
+				float const minBoundV2 = j * voxelSize + expandedMinScalarAlongV2;
+				float const maxBoundV2 = (j + 1) * voxelSize + expandedMinScalarAlongV2;
+				float const minBoundV3 = i * voxelSize + expandedMinScalarAlongV3;
+				float const maxBoundV3 = (i + 1) * voxelSize + expandedMinScalarAlongV3;
+
+				// per triangle...
+				for (unsigned f = 0; f < m_model->drawFaces.size(); f += 3) {
+					// get 3 triangle verts in x,y,z coordinate frame...
+					glm::vec3 const& tV1xyz = m_model->drawVerts.at(m_model->drawFaces.at(f));
+					glm::vec3 const& tV2xyz = m_model->drawVerts.at(m_model->drawFaces.at(f+1));
+					glm::vec3 const& tV3xyz = m_model->drawVerts.at(m_model->drawFaces.at(f+2));
+
+					// project these 3 points into OBB frame (measured by scalars along each of the 3 basis eigenvectors)...
+					// .x will be eigenV1 scalar, .y is V2, .z is V3
+					glm::vec3 const tV1 = glm::vec3(glm::dot(tV1xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV1xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV1xyz, eigenV3) / glm::length2(eigenV3));
+					glm::vec3 const tV2 = glm::vec3(glm::dot(tV2xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV2xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV2xyz, eigenV3) / glm::length2(eigenV3));
+					glm::vec3 const tV3 = glm::vec3(glm::dot(tV3xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV3xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV3xyz, eigenV3) / glm::length2(eigenV3));
+
+					// 1. compare all 3 triangle verts with 6 cube faces...
+					//TODO: move all of these things into functions later
+					// face_plane(tV1)...
+					long face_plane_outcode_tV1 = 0;
+					if (tV1.x > maxBoundV1) face_plane_outcode_tV1 |= 0x01;
+					if (tV1.x < minBoundV1) face_plane_outcode_tV1 |= 0x02;
+					if (tV1.y > maxBoundV2) face_plane_outcode_tV1 |= 0x04;
+					if (tV1.y < minBoundV2) face_plane_outcode_tV1 |= 0x08;
+					if (tV1.z > maxBoundV3) face_plane_outcode_tV1 |= 0x10;
+					if (tV1.z < minBoundV3) face_plane_outcode_tV1 |= 0x20;
+
+					// face_plane(tV2)...
+					long face_plane_outcode_tV2 = 0;
+					if (tV2.x > maxBoundV1) face_plane_outcode_tV2 |= 0x01;
+					if (tV2.x < minBoundV1) face_plane_outcode_tV2 |= 0x02;
+					if (tV2.y > maxBoundV2) face_plane_outcode_tV2 |= 0x04;
+					if (tV2.y < minBoundV2) face_plane_outcode_tV2 |= 0x08;
+					if (tV2.z > maxBoundV3) face_plane_outcode_tV2 |= 0x10;
+					if (tV2.z < minBoundV3) face_plane_outcode_tV2 |= 0x20;
+
+					// face_plane(tV3)...
+					long face_plane_outcode_tV3 = 0;
+					if (tV3.x > maxBoundV1) face_plane_outcode_tV3 |= 0x01;
+					if (tV3.x < minBoundV1) face_plane_outcode_tV3 |= 0x02;
+					if (tV3.y > maxBoundV2) face_plane_outcode_tV3 |= 0x04;
+					if (tV3.y < minBoundV2) face_plane_outcode_tV3 |= 0x08;
+					if (tV3.z > maxBoundV3) face_plane_outcode_tV3 |= 0x10;
+					if (tV3.z < minBoundV3) face_plane_outcode_tV3 |= 0x20;
+
+					// TRIVIAL INTERSECTION (TRI VERT(S) INSIDE CUBE!)...
+					if (0 == face_plane_outcode_tV1 || 0 == face_plane_outcode_tV2 || 0 == face_plane_outcode_tV3) {
+						//TODO: handle intersection
+						voxelClasses.at(i).at(j).at(k) = 1; // flag as FEATURE VOXEL
+						//TODO: could assign normal as the vert normal which is already averaged and then break out of this loop (no need to check anymore triangles? - NOPE THIS IS WRONG SINCE IT COULD STILL INTERSECT OTHERS IF VOXEL SIZE IS HIGH
+						continue;
+					}
+
+					// TRIVIAL REJECTION (ALL 3 TRI VERTS LIE OUTSIDE OF 1 OR MORE CUBE FACE PLANES)...
+					if (0 != (face_plane_outcode_tV1 & face_plane_outcode_tV2 & face_plane_outcode_tV3)) continue;
+
+
+					// 2. compare all 3 triangle verts with 12 cube edge planes...
+
+
+					//TODO: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~RATHER THAN PERFORMING TRIANGLE INTERSECTION TESTS, WHY NOT JUST TO A MUCH FASTER/ALBEIT LESS ACCURATE WAY (DISCRETIZE THE TRIANGLE AREA INTO POINTS WITHIN ITS PLANE (CAN SWEEP BARYCENTRICALLY UVW) - then find all voxels containing these points and mark them as FEATURE)
+					//NOTE: would need to make sure a triangle's normal doesnt contribute multiple times to same voxel
+
+				}
+
+
+			}
+		}
+	}
+*/
+
+	// afterwards, we normalize the intersected face normals to get the average (in most cases, we will only have 1 contributing triangle face and thus the normal will go unchanged))
+	//TODO: could optimize this in future by keeping an intersection count. If 0 or 1 then do nothing, else (>1) - normalize)
+
+
+
+
+
+
+
+
+
+/* INITIAL OBB CAN BE DRAWN WITH THIS...
 	//TODO: the below 2 comments arent very accurate??? so remove them later???
 	//NOTE: now we have 3 mutually orthonormal vectors to form our basis for our local coordinate frame centered at the centroid???...
 	// express all points as position vectors relative to centroid, but still defined in terms of x,y,z...
@@ -927,7 +1088,7 @@ void Program::generateCage() {
 	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
 	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
 	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
-
+*/
 	/*
 	m_cage->drawVerts.push_back(mu - eigenV1 - eigenV2 - eigenV3);
 	m_cage->drawVerts.push_back(mu - eigenV1 - eigenV2 + eigenV3);
@@ -938,7 +1099,7 @@ void Program::generateCage() {
 	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 - eigenV3);
 	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 + eigenV3);
 	*/
-
+/*
 	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
 	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
 
@@ -1026,4 +1187,8 @@ void Program::generateCage() {
 	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 	meshObjects.push_back(m_cage);
 	renderEngine->assignBuffers(*m_cage);
+*/
+
+
+
 }
