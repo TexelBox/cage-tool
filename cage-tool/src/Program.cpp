@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <glm/gtx/norm.hpp>
+#include <glm/gtx/projection.hpp>
 
 // STATICS (INIT)...
 glm::vec3 const Program::s_CAGE_UNSELECTED_COLOUR = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -910,6 +911,7 @@ void Program::generateCage() {
 	// 6. compute a cubic voxel size (side length) as the minimum distance between any 2 model verts...
 	//NOTE: this seems like a very bad way of doing this since 2 outlier verts can make voxels really small and consume WAY TOO MUCH RAM
 
+/*
 	float minDistance2 = std::numeric_limits<float>::max();
 	for (unsigned int i = 0; i < pointSetM.size()-1; ++i) {
 		for (unsigned int j = i+1; j < pointSetM.size(); ++j) {
@@ -918,12 +920,17 @@ void Program::generateCage() {
 		}
 	}
 	float const voxelSize = glm::sqrt(minDistance2);
+*/
 	//TODO: make sure this is never 0. could clamp lower bound as epsilon or use something like 0.001
 
 	//float const voxelSize = glm::max(glm::sqrt(minDistance2), 0.1f);
 
 	//TESTING THIS...
-	//float const voxelSize = (maxScalarAlongV3 - minScalarAlongV3) / 100;
+	float const avgExtent = ((maxScalarAlongV1 - minScalarAlongV1) + (maxScalarAlongV2 - minScalarAlongV2) + (maxScalarAlongV3 - minScalarAlongV3)) / 3;
+	float const voxelSize = avgExtent / 100; // NOTE: increase denominator in order to increase voxel resolution (voxel count) - NOTE: that scaling the denom causes a cubic scale to the voxel count (so RAM explodes pretty quickly) 
+
+
+	//float const voxelSize = (maxScalarAlongV3 - minScalarAlongV3) / 100; 
 	
 
 	// 7. voxelize our OBB into a slightly larger (or if lucky same size) 3D grid of cubes...
@@ -954,18 +961,247 @@ void Program::generateCage() {
 	// coloured voxel array (BLACK =:= OUTER (default), CYAN =:= FEATURE, MAGENTA =:= INNER)
 	// those colours can be assigned later if we want to render the voxels, but for now treat BLACK == 0, CYAN == 1, MAGENTA = 2
 
+	unsigned int const OUTER_BLACK = 0;
+	unsigned int const FEATURE_CYAN = 1;
+	unsigned int const INNER_MAGENTA = 2;
+
+
 	unsigned int const nV1 = 2 * voxelCountAlongHalfV1;
 	unsigned int const nV2 = 2 * voxelCountAlongHalfV2;
 	unsigned int const nV3 = 2 * voxelCountAlongHalfV3;
 
 	// either 0, 1, or 2
-	std::vector<std::vector<std::vector<unsigned int>>> voxelClasses(nV3, std::vector<std::vector<unsigned int>>(nV2, std::vector<unsigned int>(nV1, 0)));
+	std::vector<std::vector<std::vector<unsigned int>>> voxelClasses(nV3, std::vector<std::vector<unsigned int>>(nV2, std::vector<unsigned int>(nV1, OUTER_BLACK)));
 	//NOTE: below, this 3D array maps voxel [V3][V2][V1] with either glm::vec3(0.0f, 0.0f, 0.0f) or another non-zero vec3.
 	//~~~~~ this vec3 will be non-zero if this voxel is found to be a FEATURE VOXEL (meaning it has intersected at least 1 triangle face of model).
 	//~~~~~ if this feature voxel is found to intersect multiple triangle faces, then this vec3 is taken as the trivial average of the face normals (normalized sum of them)
 	std::vector<std::vector<std::vector<glm::vec3>>> voxelIntersectedFaceAvgNormals(nV3, std::vector<std::vector<glm::vec3>>(nV2, std::vector<glm::vec3>(nV1, glm::vec3(0.0f, 0.0f, 0.0f))));
 
 	// 8. CLASSIFY FEATURE VOXELS...
+
+	// per triangle...
+	for (unsigned int f = 0; f < m_model->drawFaces.size(); f += 3) {
+		// get 3 triangle verts in x,y,z coordinate frame...
+		glm::vec3 const& tV1xyz = m_model->drawVerts.at(m_model->drawFaces.at(f));
+		glm::vec3 const& tV2xyz = m_model->drawVerts.at(m_model->drawFaces.at(f + 1));
+		glm::vec3 const& tV3xyz = m_model->drawVerts.at(m_model->drawFaces.at(f + 2));
+
+		// project these 3 points into OBB frame (measured by scalars along each of the 3 basis eigenvectors)...
+		// .x will be eigenV1 scalar, .y is V2, .z is V3
+		glm::vec3 const tV1 = glm::vec3(glm::dot(tV1xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV1xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV1xyz, eigenV3) / glm::length2(eigenV3));
+		glm::vec3 const tV2 = glm::vec3(glm::dot(tV2xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV2xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV2xyz, eigenV3) / glm::length2(eigenV3));
+		glm::vec3 const tV3 = glm::vec3(glm::dot(tV3xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV3xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV3xyz, eigenV3) / glm::length2(eigenV3));
+
+		// DISCRETIZE TRIANGLE FACE BY BARYCENTRIC COORDS...
+
+		//NOTE: this will be susceptible to duplicates
+		//TODO: make sure bounds actually are [0, 1] exactly (rather than stopping short before 1) - should be done now
+
+		// NOTE: all these points will be in OBB space
+		std::vector<glm::vec3> discreteTrianglePts;
+		discreteTrianglePts.push_back(tV1);
+		discreteTrianglePts.push_back(tV2);
+		discreteTrianglePts.push_back(tV3);
+
+		
+		float const du = voxelSize / (glm::distance(tV1, glm::proj(tV1, tV3 - tV2)));
+		float const dv = voxelSize / (glm::distance(tV2, glm::proj(tV2, tV3 - tV1)));
+
+		//NOTE: HUGE RAM INCREASE DUE TO COMMENTED-OUT BOUNDARY POINT HANDLING!!!
+		for (float u = 0.0f; u <= 1.0f; u += glm::min<float>(du, 1.0f-u > 0.0f ? 1.0f-u : du)) {
+			for (float v = 0.0f; v <= 1.0f - u; v += glm::min<float>(dv, 1.0f-u-v > 0.0f ? 1.0f-u-v : dv)) {
+				float const w = 1.0f - u - v;
+				discreteTrianglePts.push_back(u * tV1 + v * tV2 + w * tV3);
+
+				// handle boundary points...
+				//float const remainingDiffV = (1.0f - u) - v;
+				//if (0.0f < remainingDiffV && remainingDiffV < dv) v = 1.0f - u - dv;
+			}
+			// handle boundary points...
+			//float const remainingDiffU = 1.0f - u;
+			//if (0.0f < remainingDiffU && remainingDiffU < du) u = 1.0f - du;
+		}
+		
+
+	
+		// NOW FOR EVERY TRIANGLE POINT...
+		// check voxel its in (by mapping formula) and mark FEATURE VOXEL, add to list of considered voxels for this tri-face and if not already considered add this face normal as contribution
+	
+		// inverse mapping formula (position to voxel index)
+		// i on V3, j on V2, k on V1
+		// storing already considered (by this face) feature voxels as vec3(i,j,k)
+
+		std::vector<glm::vec3> consideredVoxels;
+		for (glm::vec3 const& tPt : discreteTrianglePts) {
+			// inverse map back to indices i,j,k (single voxel)...
+
+			//TODO: need to handle top most voxels to also include ceil
+			unsigned int const indexI = glm::floor((tPt.z - expandedMinScalarAlongV3) / voxelSize);
+			unsigned int const indexJ = glm::floor((tPt.y - expandedMinScalarAlongV2) / voxelSize);
+			unsigned int const indexK = glm::floor((tPt.x - expandedMinScalarAlongV1) / voxelSize);
+
+			glm::vec3 const intersectedVoxel = glm::vec3(indexI, indexJ, indexK);
+			auto it = std::find(consideredVoxels.begin(), consideredVoxels.end(), intersectedVoxel);
+			if (consideredVoxels.end() == it) { // new considered voxel
+
+				// mark voxel as FEATURE...
+				voxelClasses.at(indexI).at(indexJ).at(indexK) = FEATURE_CYAN;
+
+				// contribute this face's normal to voxel
+				voxelIntersectedFaceAvgNormals.at(indexI).at(indexJ).at(indexK) += m_model->faceNormals.at(f / 3);
+
+				// mark voxel as considered by this tri-face
+				consideredVoxels.push_back(intersectedVoxel);
+			}
+		}
+	}
+
+	// 8.5. foreach voxel, normalize (avg) the contributed face normals
+
+	// per voxel...
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				// if voxel was marked as FEATURE...
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					//TODO: make sure the tri-face normals weren't symbolic 0 vector due to being really small???
+					voxelIntersectedFaceAvgNormals.at(i).at(j).at(k) = glm::normalize(voxelIntersectedFaceAvgNormals.at(i).at(j).at(k));
+				}
+			}
+		}
+	}
+
+	// 9. CLASSIFY INNER VOXELS (SCAN-ALGORITHM)...
+	// reference: http://blog.wolfire.com/2009/11/Triangle-mesh-voxelization
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			std::vector<glm::vec3> voxelStore;
+
+			// find start/end feature voxels in this line...
+			// voxels outside of these bounds have to remain outer voxels
+			bool foundMin = false;
+			unsigned int minK = 0;
+			unsigned int maxK = 0;
+
+			for (unsigned int k = 0; k < nV1; ++k) {
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					maxK = k;
+					if (!foundMin) {
+						minK = k;
+						foundMin = true;
+					}
+				}
+			}
+
+			for (unsigned int k = minK; k <= maxK; ++k) {
+				// DIRECTION OF SCAN VECTOR IS eigenV1 basis vector
+
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					if (glm::dot(voxelIntersectedFaceAvgNormals.at(i).at(j).at(k), eigenV1) > 0.0f) {
+
+						// mark all stored voxels as inner...
+						for (glm::vec3 const& voxel : voxelStore) {
+							voxelClasses.at(voxel.x).at(voxel.y).at(voxel.z) = INNER_MAGENTA;
+						}
+					}
+					voxelStore.clear();
+				} else {
+					voxelStore.push_back(glm::vec3(i, j, k));
+				}
+			}
+		}
+	}
+
+	//NOTE: could test out what happens if we include feature voxels as well (i'm guessing it would make OBB slightly larger which could be beneficial
+	// 10. GENERATE THE POINT SET P = {MODEL VERTS} + {INNER VOXEL BARYCENTRES}...
+
+
+	std::vector<glm::vec3> pointSetP = pointSetM; // copy all unique model verts into our new set
+	//TEMP DOING THIS TO CHECK OVER JUST INNER VOXELS...
+	//std::vector<glm::vec3> pointSetP;
+
+	// add INNER VOXEL BARYCENTRES...
+	// per voxel...
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				// if voxel was marked as INNER...
+				if (INNER_MAGENTA == voxelClasses.at(i).at(j).at(k)) {
+					float const v1Coord = (k + 0.5) * voxelSize + expandedMinScalarAlongV1;
+					float const v2Coord = (j + 0.5) * voxelSize + expandedMinScalarAlongV2;
+					float const v3Coord = (i + 0.5) * voxelSize + expandedMinScalarAlongV3;
+					glm::vec3 const barycentre = v1Coord * eigenV1 + v2Coord * eigenV2 + v3Coord * eigenV3;
+					pointSetP.push_back(barycentre);
+				}
+			}
+		}
+	}
+
+
+/*
+	//TEMP - testing feature voxels
+	std::vector<glm::vec3> pointSetP;
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					float const v1Coord = (k + 0.5) * voxelSize + expandedMinScalarAlongV1;
+					float const v2Coord = (j + 0.5) * voxelSize + expandedMinScalarAlongV2;
+					float const v3Coord = (i + 0.5) * voxelSize + expandedMinScalarAlongV3;
+					glm::vec3 const barycentre = v1Coord * eigenV1 + v2Coord * eigenV2 + v3Coord * eigenV3;
+					pointSetP.push_back(barycentre);
+				}
+			}
+		}
+	}
+*/
+
+
+	////////////////////////////////////////
+	//TEMP RENDER THE POINTS AS CAGE...
+	clearCage();
+	m_cage = std::make_shared<MeshObject>();
+	m_cage->drawVerts = pointSetP;
+
+	// init faces as triangles that are actually points!!!
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->drawFaces.push_back(i);
+		m_cage->drawFaces.push_back(i);
+		m_cage->drawFaces.push_back(i);
+	}
+
+
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::POINT;
+	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
+
+
+
+
+
 
 	// perform an intersection test between every voxel (cube) and every model face (triangle)...
 	// if intersection is found, then we flag voxelClass as 1 (FEATURE) and add faceNormal contribution
@@ -1099,14 +1335,14 @@ void Program::generateCage() {
 	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 - eigenV3);
 	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 + eigenV3);
 	*/
-/*
+
 	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
 	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
 
 	//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
 
 	// FROM 0 (000)
-
+/*
 	m_cage->drawFaces.push_back(0);
 	m_cage->drawFaces.push_back(2);
 	m_cage->drawFaces.push_back(6);
@@ -1188,7 +1424,6 @@ void Program::generateCage() {
 	meshObjects.push_back(m_cage);
 	renderEngine->assignBuffers(*m_cage);
 */
-
 
 
 }

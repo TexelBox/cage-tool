@@ -41,15 +41,17 @@ void MeshObject::updateModel() {
 
 //NOTE: this assumes counter-clockwise winding of triangular faces
 //NOTE: this method does not overwrite the normal buffer, it just overwrites the normal vector data
-//TODO: could also save the face normals into a member vector as well, but since they aren't gonna be used anywhere i'm leaving them just as locals
 void MeshObject::generateNormals() {
 	if (PrimitiveMode::TRIANGLES != m_primitiveMode) return;
 
 	// clear any old normal data...
 	normals.clear();
+	faceNormals.clear();
 
-	// init (per-vertex normals)...
+	// init (per-vertex normals) / (per-face normals)...
 	normals.resize(drawVerts.size(), glm::vec3(0.0f, 0.0f, 0.0f));
+	faceNormals.resize(drawFaces.size() / 3, glm::vec3(0.0f, 0.0f, 0.0f));
+
 
 	// foreach triangle face in mesh...
 	for (unsigned int f = 0; f < drawFaces.size(); f += 3) {
@@ -70,6 +72,8 @@ void MeshObject::generateNormals() {
 		// SAFETY CHECK (e.g. if sideA or sideB were 0 vector OR if we tried to normalize the 0 vector)...
 		// on error, this face has no contribution (could flag this face normal symbolically as the 0 vector)
 		if (glm::any(glm::isnan(normal))) continue;
+
+		faceNormals.at(f / 3) = normal;
 
 		//TODO: in the future, it would be better to weight this contribution by the face angle, but for now just doing the trivial average technique
 		normals.at(p1_index) += normal;

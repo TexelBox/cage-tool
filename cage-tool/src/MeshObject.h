@@ -60,6 +60,8 @@ public:
 	
 	std::vector<GLuint> drawFaces;
 
+	std::vector<glm::vec3> faceNormals; //NOTE: assuming tri-faces, will be 1/3 size of drawFaces
+
 	GLuint vao;
 	GLuint vertexBuffer;
 	GLuint normalBuffer;
