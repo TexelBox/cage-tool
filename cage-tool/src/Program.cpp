@@ -908,30 +908,11 @@ void Program::generateCage() {
 		if (projScalarV3 > maxScalarAlongV3) maxScalarAlongV3 = projScalarV3;
 	}
 
-	// 6. compute a cubic voxel size (side length) as the minimum distance between any 2 model verts...
-	//NOTE: this seems like a very bad way of doing this since 2 outlier verts can make voxels really small and consume WAY TOO MUCH RAM
-
-/*
-	float minDistance2 = std::numeric_limits<float>::max();
-	for (unsigned int i = 0; i < pointSetM.size()-1; ++i) {
-		for (unsigned int j = i+1; j < pointSetM.size(); ++j) {
-			float const distance2 = glm::distance2(pointSetM.at(i), pointSetM.at(j));
-			if (distance2 < minDistance2) minDistance2 = distance2;
-		}
-	}
-	float const voxelSize = glm::sqrt(minDistance2);
-*/
+	// 6. compute a cubic voxel size (side length)...
 	//TODO: make sure this is never 0. could clamp lower bound as epsilon or use something like 0.001
-
-	//float const voxelSize = glm::max(glm::sqrt(minDistance2), 0.1f);
-
 	//TESTING THIS...
 	float const avgExtent = ((maxScalarAlongV1 - minScalarAlongV1) + (maxScalarAlongV2 - minScalarAlongV2) + (maxScalarAlongV3 - minScalarAlongV3)) / 3;
-	float const voxelSize = avgExtent / 100; // NOTE: increase denominator in order to increase voxel resolution (voxel count) - NOTE: that scaling the denom causes a cubic scale to the voxel count (so RAM explodes pretty quickly) 
-
-
-	//float const voxelSize = (maxScalarAlongV3 - minScalarAlongV3) / 100; 
-	
+	float const voxelSize = avgExtent / 100; // NOTE: increase denominator in order to increase voxel resolution (voxel count) - NOTE: that scaling the denom causes a cubic scale to the voxel count (so RAM explodes pretty quickly)
 
 	// 7. voxelize our OBB into a slightly larger (or if lucky same size) 3D grid of cubes...
 	// this expanded voxelized OBB will have new min/max scalars along each of the 3 basis axes denoting boundaries
@@ -975,6 +956,8 @@ void Program::generateCage() {
 	//NOTE: below, this 3D array maps voxel [V3][V2][V1] with either glm::vec3(0.0f, 0.0f, 0.0f) or another non-zero vec3.
 	//~~~~~ this vec3 will be non-zero if this voxel is found to be a FEATURE VOXEL (meaning it has intersected at least 1 triangle face of model).
 	//~~~~~ if this feature voxel is found to intersect multiple triangle faces, then this vec3 is taken as the trivial average of the face normals (normalized sum of them)
+	//TODO: there is a known issue with some voxels being wrongly marker INNER, this is likely due to the wrong normal being considered since we just take the average right now
+	//~~~~~ this can be fixed/improved by instead using the face normal with intersection point with smallest projected scalar along eigenV1 (scan direction)
 	std::vector<std::vector<std::vector<glm::vec3>>> voxelIntersectedFaceAvgNormals(nV3, std::vector<std::vector<glm::vec3>>(nV2, std::vector<glm::vec3>(nV1, glm::vec3(0.0f, 0.0f, 0.0f))));
 
 	// 8. CLASSIFY FEATURE VOXELS...
@@ -1007,23 +990,13 @@ void Program::generateCage() {
 		float const du = voxelSize / (glm::distance(tV1, glm::proj(tV1, tV3 - tV2)));
 		float const dv = voxelSize / (glm::distance(tV2, glm::proj(tV2, tV3 - tV1)));
 
-		//NOTE: HUGE RAM INCREASE DUE TO COMMENTED-OUT BOUNDARY POINT HANDLING!!!
 		for (float u = 0.0f; u <= 1.0f; u += glm::min<float>(du, 1.0f-u > 0.0f ? 1.0f-u : du)) {
 			for (float v = 0.0f; v <= 1.0f - u; v += glm::min<float>(dv, 1.0f-u-v > 0.0f ? 1.0f-u-v : dv)) {
 				float const w = 1.0f - u - v;
 				discreteTrianglePts.push_back(u * tV1 + v * tV2 + w * tV3);
-
-				// handle boundary points...
-				//float const remainingDiffV = (1.0f - u) - v;
-				//if (0.0f < remainingDiffV && remainingDiffV < dv) v = 1.0f - u - dv;
 			}
-			// handle boundary points...
-			//float const remainingDiffU = 1.0f - u;
-			//if (0.0f < remainingDiffU && remainingDiffU < du) u = 1.0f - du;
 		}
 		
-
-	
 		// NOW FOR EVERY TRIANGLE POINT...
 		// check voxel its in (by mapping formula) and mark FEATURE VOXEL, add to list of considered voxels for this tri-face and if not already considered add this face normal as contribution
 	
@@ -1117,8 +1090,6 @@ void Program::generateCage() {
 
 
 	std::vector<glm::vec3> pointSetP = pointSetM; // copy all unique model verts into our new set
-	//TEMP DOING THIS TO CHECK OVER JUST INNER VOXELS...
-	//std::vector<glm::vec3> pointSetP;
 
 	// add INNER VOXEL BARYCENTRES...
 	// per voxel...
@@ -1137,183 +1108,11 @@ void Program::generateCage() {
 		}
 	}
 
-
 /*
-	//TEMP - testing feature voxels
-	std::vector<glm::vec3> pointSetP;
-	for (unsigned int i = 0; i < nV3; ++i) {
-		for (unsigned int j = 0; j < nV2; ++j) {
-			for (unsigned int k = 0; k < nV1; ++k) {
-				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
-					float const v1Coord = (k + 0.5) * voxelSize + expandedMinScalarAlongV1;
-					float const v2Coord = (j + 0.5) * voxelSize + expandedMinScalarAlongV2;
-					float const v3Coord = (i + 0.5) * voxelSize + expandedMinScalarAlongV3;
-					glm::vec3 const barycentre = v1Coord * eigenV1 + v2Coord * eigenV2 + v3Coord * eigenV3;
-					pointSetP.push_back(barycentre);
-				}
-			}
-		}
-	}
-*/
-
-
-	////////////////////////////////////////
-	//TEMP RENDER THE POINTS AS CAGE...
-	clearCage();
-	m_cage = std::make_shared<MeshObject>();
-	m_cage->drawVerts = pointSetP;
-
-	// init faces as triangles that are actually points!!!
-	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
-		m_cage->drawFaces.push_back(i);
-		m_cage->drawFaces.push_back(i);
-		m_cage->drawFaces.push_back(i);
-	}
-
-
-
-	// init vert colours (uniform light grey for now)
-	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
-		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
-	}
-
-	// set cage black and also set picking colours...
-	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
-		// render colour...
-		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
-
-		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
-		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
-		// picking colour...
-		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
-		unsigned int const r = (i & 0x000000FF) >> 0;
-		unsigned int const g = (i & 0x0000FF00) >> 8;
-		unsigned int const b = (i & 0x00FF0000) >> 16;
-		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
-	}
-	m_cage->m_polygonMode = PolygonMode::POINT;
-	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
-
-	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
-	meshObjects.push_back(m_cage);
-	renderEngine->assignBuffers(*m_cage);
-
-
-
-
-
-
-	// perform an intersection test between every voxel (cube) and every model face (triangle)...
-	// if intersection is found, then we flag voxelClass as 1 (FEATURE) and add faceNormal contribution
-
-	// CUBE-TRIANGLE INTERSECTION TEST...
-	// reference: http://www.realtimerendering.com/resources/GraphicsGems/gemsiii/triangleCube.c
-
-/*
-	for (unsigned int i = 0; i < nV3; ++i) {
-		for (unsigned int j = 0; j < nV2; ++j) {
-			for (unsigned int k = 0; k < nV1; ++k) {
-				// intersection test voxel[i][j][k] against every triangle face in model...
-
-				// first, get 6 scalar bounds (of cube faces)...
-
-				float const minBoundV1 = k * voxelSize + expandedMinScalarAlongV1;
-				float const maxBoundV1 = (k + 1) * voxelSize + expandedMinScalarAlongV1;
-				float const minBoundV2 = j * voxelSize + expandedMinScalarAlongV2;
-				float const maxBoundV2 = (j + 1) * voxelSize + expandedMinScalarAlongV2;
-				float const minBoundV3 = i * voxelSize + expandedMinScalarAlongV3;
-				float const maxBoundV3 = (i + 1) * voxelSize + expandedMinScalarAlongV3;
-
-				// per triangle...
-				for (unsigned f = 0; f < m_model->drawFaces.size(); f += 3) {
-					// get 3 triangle verts in x,y,z coordinate frame...
-					glm::vec3 const& tV1xyz = m_model->drawVerts.at(m_model->drawFaces.at(f));
-					glm::vec3 const& tV2xyz = m_model->drawVerts.at(m_model->drawFaces.at(f+1));
-					glm::vec3 const& tV3xyz = m_model->drawVerts.at(m_model->drawFaces.at(f+2));
-
-					// project these 3 points into OBB frame (measured by scalars along each of the 3 basis eigenvectors)...
-					// .x will be eigenV1 scalar, .y is V2, .z is V3
-					glm::vec3 const tV1 = glm::vec3(glm::dot(tV1xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV1xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV1xyz, eigenV3) / glm::length2(eigenV3));
-					glm::vec3 const tV2 = glm::vec3(glm::dot(tV2xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV2xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV2xyz, eigenV3) / glm::length2(eigenV3));
-					glm::vec3 const tV3 = glm::vec3(glm::dot(tV3xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV3xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV3xyz, eigenV3) / glm::length2(eigenV3));
-
-					// 1. compare all 3 triangle verts with 6 cube faces...
-					//TODO: move all of these things into functions later
-					// face_plane(tV1)...
-					long face_plane_outcode_tV1 = 0;
-					if (tV1.x > maxBoundV1) face_plane_outcode_tV1 |= 0x01;
-					if (tV1.x < minBoundV1) face_plane_outcode_tV1 |= 0x02;
-					if (tV1.y > maxBoundV2) face_plane_outcode_tV1 |= 0x04;
-					if (tV1.y < minBoundV2) face_plane_outcode_tV1 |= 0x08;
-					if (tV1.z > maxBoundV3) face_plane_outcode_tV1 |= 0x10;
-					if (tV1.z < minBoundV3) face_plane_outcode_tV1 |= 0x20;
-
-					// face_plane(tV2)...
-					long face_plane_outcode_tV2 = 0;
-					if (tV2.x > maxBoundV1) face_plane_outcode_tV2 |= 0x01;
-					if (tV2.x < minBoundV1) face_plane_outcode_tV2 |= 0x02;
-					if (tV2.y > maxBoundV2) face_plane_outcode_tV2 |= 0x04;
-					if (tV2.y < minBoundV2) face_plane_outcode_tV2 |= 0x08;
-					if (tV2.z > maxBoundV3) face_plane_outcode_tV2 |= 0x10;
-					if (tV2.z < minBoundV3) face_plane_outcode_tV2 |= 0x20;
-
-					// face_plane(tV3)...
-					long face_plane_outcode_tV3 = 0;
-					if (tV3.x > maxBoundV1) face_plane_outcode_tV3 |= 0x01;
-					if (tV3.x < minBoundV1) face_plane_outcode_tV3 |= 0x02;
-					if (tV3.y > maxBoundV2) face_plane_outcode_tV3 |= 0x04;
-					if (tV3.y < minBoundV2) face_plane_outcode_tV3 |= 0x08;
-					if (tV3.z > maxBoundV3) face_plane_outcode_tV3 |= 0x10;
-					if (tV3.z < minBoundV3) face_plane_outcode_tV3 |= 0x20;
-
-					// TRIVIAL INTERSECTION (TRI VERT(S) INSIDE CUBE!)...
-					if (0 == face_plane_outcode_tV1 || 0 == face_plane_outcode_tV2 || 0 == face_plane_outcode_tV3) {
-						//TODO: handle intersection
-						voxelClasses.at(i).at(j).at(k) = 1; // flag as FEATURE VOXEL
-						//TODO: could assign normal as the vert normal which is already averaged and then break out of this loop (no need to check anymore triangles? - NOPE THIS IS WRONG SINCE IT COULD STILL INTERSECT OTHERS IF VOXEL SIZE IS HIGH
-						continue;
-					}
-
-					// TRIVIAL REJECTION (ALL 3 TRI VERTS LIE OUTSIDE OF 1 OR MORE CUBE FACE PLANES)...
-					if (0 != (face_plane_outcode_tV1 & face_plane_outcode_tV2 & face_plane_outcode_tV3)) continue;
-
-
-					// 2. compare all 3 triangle verts with 12 cube edge planes...
-
-
-					//TODO: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~RATHER THAN PERFORMING TRIANGLE INTERSECTION TESTS, WHY NOT JUST TO A MUCH FASTER/ALBEIT LESS ACCURATE WAY (DISCRETIZE THE TRIANGLE AREA INTO POINTS WITHIN ITS PLANE (CAN SWEEP BARYCENTRICALLY UVW) - then find all voxels containing these points and mark them as FEATURE)
-					//NOTE: would need to make sure a triangle's normal doesnt contribute multiple times to same voxel
-
-				}
-
-
-			}
-		}
-	}
-*/
-
-	// afterwards, we normalize the intersected face normals to get the average (in most cases, we will only have 1 contributing triangle face and thus the normal will go unchanged))
-	//TODO: could optimize this in future by keeping an intersection count. If 0 or 1 then do nothing, else (>1) - normalize)
-
-
-
-
-
-
-
-
-
-/* INITIAL OBB CAN BE DRAWN WITH THIS...
-	//TODO: the below 2 comments arent very accurate??? so remove them later???
-	//NOTE: now we have 3 mutually orthonormal vectors to form our basis for our local coordinate frame centered at the centroid???...
-	// express all points as position vectors relative to centroid, but still defined in terms of x,y,z...
-
+	// INITIAL OBB CAN BE DRAWN WITH THIS...
 	// clear old cage if any...
 	clearCage();
 
-	//TODO: piece-together new cage...
-	
-	
 	//TESTING FOR NOW!!!!
 	m_cage = std::make_shared<MeshObject>();
 	m_cage->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
@@ -1324,17 +1123,6 @@ void Program::generateCage() {
 	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
 	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
 	m_cage->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
-*/
-	/*
-	m_cage->drawVerts.push_back(mu - eigenV1 - eigenV2 - eigenV3);
-	m_cage->drawVerts.push_back(mu - eigenV1 - eigenV2 + eigenV3);
-	m_cage->drawVerts.push_back(mu - eigenV1 + eigenV2 - eigenV3);
-	m_cage->drawVerts.push_back(mu - eigenV1 + eigenV2 + eigenV3);
-	m_cage->drawVerts.push_back(mu + eigenV1 - eigenV2 - eigenV3);
-	m_cage->drawVerts.push_back(mu + eigenV1 - eigenV2 + eigenV3);
-	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 - eigenV3);
-	m_cage->drawVerts.push_back(mu + eigenV1 + eigenV2 + eigenV3);
-	*/
 
 	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
 	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
@@ -1342,7 +1130,7 @@ void Program::generateCage() {
 	//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
 
 	// FROM 0 (000)
-/*
+
 	m_cage->drawFaces.push_back(0);
 	m_cage->drawFaces.push_back(2);
 	m_cage->drawFaces.push_back(6);
@@ -1351,7 +1139,7 @@ void Program::generateCage() {
 	m_cage->drawFaces.push_back(6);
 	m_cage->drawFaces.push_back(4);
 
-	
+
 	m_cage->drawFaces.push_back(0);
 	m_cage->drawFaces.push_back(1);
 	m_cage->drawFaces.push_back(3);
@@ -1374,11 +1162,11 @@ void Program::generateCage() {
 	m_cage->drawFaces.push_back(7);
 	m_cage->drawFaces.push_back(3);
 	m_cage->drawFaces.push_back(1);
-	
+
 	m_cage->drawFaces.push_back(7);
 	m_cage->drawFaces.push_back(1);
 	m_cage->drawFaces.push_back(5);
-	
+
 
 	m_cage->drawFaces.push_back(7);
 	m_cage->drawFaces.push_back(5);
@@ -1418,12 +1206,52 @@ void Program::generateCage() {
 		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
 	}
 	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
-	m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
 
 	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
 	meshObjects.push_back(m_cage);
 	renderEngine->assignBuffers(*m_cage);
 */
 
+/*
+	// USE THIS TO RENDER VOXELIZED MESH AS POINT SET P (MODEL VERTS + INNER VOXELS)
+	// clear old cage if any...
+	clearCage();
+	m_cage = std::make_shared<MeshObject>();
+	m_cage->drawVerts = pointSetP;
+
+	// init faces as triangles that are actually points!!!
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->drawFaces.push_back(i);
+		m_cage->drawFaces.push_back(i);
+		m_cage->drawFaces.push_back(i);
+	}
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::POINT;
+	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
+*/
 
 }
