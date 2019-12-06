@@ -31,6 +31,7 @@ class Program {
 public:
 	static glm::vec3 const s_CAGE_UNSELECTED_COLOUR;
 	static glm::vec3 const s_CAGE_SELECTED_COLOUR;
+	static unsigned int const s_MAX_RECURSIVE_DEPTH;
 
 	Program();
 	void start();
@@ -81,5 +82,11 @@ private:
 
 
 	void generateCage();
+	std::vector<glm::vec3> generatePointSetP();
+	std::shared_ptr<MeshObject> generateOBBs(std::vector<glm::vec3> &points, unsigned int recursiveDepth);
+
+	float m_voxelSize = 0.0f;
+
+	//int recursiveDepthTest = 0;
 
 };

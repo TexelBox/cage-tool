@@ -7,6 +7,7 @@
 // STATICS (INIT)...
 glm::vec3 const Program::s_CAGE_UNSELECTED_COLOUR = glm::vec3(0.0f, 0.0f, 0.0f);
 glm::vec3 const Program::s_CAGE_SELECTED_COLOUR = glm::vec3(1.0f, 1.0f, 0.0f);
+unsigned int const Program::s_MAX_RECURSIVE_DEPTH = 10;
 
 Program::Program() {
 
@@ -824,6 +825,47 @@ void Program::translateSelectedCageVerts(glm::vec3 const& translation) {
 void Program::generateCage() {
 	if (nullptr == m_model) return;
 
+	std::vector<glm::vec3> pointSetP = generatePointSetP();
+
+	std::shared_ptr<MeshObject> obbTree = generateOBBs(pointSetP, 0);
+
+	//TODO: construct cage out of obbTree for rendering (e.g. add colours/picking colours, flags, etc.)
+
+	// clear old cage if any...
+	clearCage();
+
+	m_cage = obbTree;
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
+	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+	//m_cage->setScale(glm::vec3(0.02f, 0.02f, 0.02f));
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
+}
+
+std::vector<glm::vec3> Program::generatePointSetP() {
+	if (nullptr == m_model) return std::vector<glm::vec3>();
+
 	// 1. extract set of model verts (eliminate duplicates)...
 	std::vector<glm::vec3> pointSetM;
 	for (glm::vec3 const& p : m_model->drawVerts) {
@@ -864,7 +906,7 @@ void Program::generateCage() {
 	//NOTE: this matrix should be REAL and SYMMETRIC
 
 	// 5. get sorted eigenvalues (ascending) + corresponding eigenvectors...
-	
+
 	// convert matrix form (glm -> eigen) to work with eigensolver...
 	Eigen::Matrix3f covMatEigen;
 	for (unsigned int i = 0; i < covarianceMatrix.length(); ++i) { // loop over columns
@@ -886,11 +928,11 @@ void Program::generateCage() {
 
 	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
 	float minScalarAlongV1 = std::numeric_limits<float>::max();
-	float maxScalarAlongV1 = std::numeric_limits<float>::min();
+	float maxScalarAlongV1 = std::numeric_limits<float>::lowest();
 	float minScalarAlongV2 = std::numeric_limits<float>::max();
-	float maxScalarAlongV2 = std::numeric_limits<float>::min();
+	float maxScalarAlongV2 = std::numeric_limits<float>::lowest();
 	float minScalarAlongV3 = std::numeric_limits<float>::max();
-	float maxScalarAlongV3 = std::numeric_limits<float>::min();
+	float maxScalarAlongV3 = std::numeric_limits<float>::lowest();
 	for (glm::vec3 const& p : pointSetM) {
 		// project along eigenV1 axis...
 		float const projScalarV1 = glm::dot(p, eigenV1) / glm::length2(eigenV1);
@@ -913,6 +955,7 @@ void Program::generateCage() {
 	//TESTING THIS...
 	float const avgExtent = ((maxScalarAlongV1 - minScalarAlongV1) + (maxScalarAlongV2 - minScalarAlongV2) + (maxScalarAlongV3 - minScalarAlongV3)) / 3;
 	float const voxelSize = avgExtent / 100; // NOTE: increase denominator in order to increase voxel resolution (voxel count) - NOTE: that scaling the denom causes a cubic scale to the voxel count (so RAM explodes pretty quickly)
+	m_voxelSize = voxelSize;
 
 	// 7. voxelize our OBB into a slightly larger (or if lucky same size) 3D grid of cubes...
 	// this expanded voxelized OBB will have new min/max scalars along each of the 3 basis axes denoting boundaries
@@ -986,20 +1029,20 @@ void Program::generateCage() {
 		discreteTrianglePts.push_back(tV2);
 		discreteTrianglePts.push_back(tV3);
 
-		
+
 		float const du = voxelSize / (glm::distance(tV1, glm::proj(tV1, tV3 - tV2)));
 		float const dv = voxelSize / (glm::distance(tV2, glm::proj(tV2, tV3 - tV1)));
 
-		for (float u = 0.0f; u <= 1.0f; u += glm::min<float>(du, 1.0f-u > 0.0f ? 1.0f-u : du)) {
-			for (float v = 0.0f; v <= 1.0f - u; v += glm::min<float>(dv, 1.0f-u-v > 0.0f ? 1.0f-u-v : dv)) {
+		for (float u = 0.0f; u <= 1.0f; u += glm::min<float>(du, 1.0f - u > 0.0f ? 1.0f - u : du)) {
+			for (float v = 0.0f; v <= 1.0f - u; v += glm::min<float>(dv, 1.0f - u - v > 0.0f ? 1.0f - u - v : dv)) {
 				float const w = 1.0f - u - v;
 				discreteTrianglePts.push_back(u * tV1 + v * tV2 + w * tV3);
 			}
 		}
-		
+
 		// NOW FOR EVERY TRIANGLE POINT...
 		// check voxel its in (by mapping formula) and mark FEATURE VOXEL, add to list of considered voxels for this tri-face and if not already considered add this face normal as contribution
-	
+
 		// inverse mapping formula (position to voxel index)
 		// i on V3, j on V2, k on V1
 		// storing already considered (by this face) feature voxels as vec3(i,j,k)
@@ -1078,7 +1121,8 @@ void Program::generateCage() {
 						}
 					}
 					voxelStore.clear();
-				} else {
+				}
+				else {
 					voxelStore.push_back(glm::vec3(i, j, k));
 				}
 			}
@@ -1107,6 +1151,28 @@ void Program::generateCage() {
 			}
 		}
 	}
+
+/*
+	//TEMP TESTING THIS WITH FEATURE VOXELS INCLUDED
+	//NOTE: INCLUDING FEATURE VOXELS SCREWS UP OBBs
+	//NOTE: this explodes RAM for armadillo
+	std::vector<glm::vec3> pointSetP = pointSetM;
+
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				if (INNER_MAGENTA == voxelClasses.at(i).at(j).at(k) || FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					float const v1Coord = (k + 0.5) * voxelSize + expandedMinScalarAlongV1;
+					float const v2Coord = (j + 0.5) * voxelSize + expandedMinScalarAlongV2;
+					float const v3Coord = (i + 0.5) * voxelSize + expandedMinScalarAlongV3;
+					glm::vec3 const barycentre = v1Coord * eigenV1 + v2Coord * eigenV2 + v3Coord * eigenV3;
+					pointSetP.push_back(barycentre);
+				}
+			}
+		}
+	}
+*/
+	return pointSetP;
 
 /*
 	// INITIAL OBB CAN BE DRAWN WITH THIS...
@@ -1253,5 +1319,1685 @@ void Program::generateCage() {
 	meshObjects.push_back(m_cage);
 	renderEngine->assignBuffers(*m_cage);
 */
-
 }
+
+
+std::shared_ptr<MeshObject> Program::generateOBBs(std::vector<glm::vec3> &points, unsigned int recursiveDepth) {
+	if (points.empty()) return nullptr;
+
+	// 1. generate OBB of points using PCA...
+	// reference: https://stackoverflow.com/questions/6189229/creating-oobb-from-points
+	
+	// 2. compute centroid mu of points...
+	glm::vec3 mu = glm::vec3(0.0f, 0.0f, 0.0f);
+	for (glm::vec3 const& p : points) {
+		mu += p;
+	}
+	mu /= points.size();
+
+	// 3. compute covariance matrix...
+	glm::mat3 covarianceMatrix = glm::mat3(0.0f);
+	for (glm::vec3 const& p : points) {
+		glm::vec3 const dev = p - mu;
+		glm::mat3 const covMat_i = glm::outerProduct(dev, dev); // dev * (dev)^T
+		covarianceMatrix += covMat_i;
+	}
+	//NOTE: this matrix should be REAL and SYMMETRIC
+
+	// 4. get sorted eigenvalues (ascending) + corresponding eigenvectors...
+
+	// convert matrix form (glm -> eigen) to work with eigensolver...
+	Eigen::Matrix3f covMatEigen;
+	for (unsigned int i = 0; i < covarianceMatrix.length(); ++i) { // loop over columns
+		for (unsigned int j = 0; j < covarianceMatrix[i].length(); ++j) { // loop over rows
+			covMatEigen(j, i) = covarianceMatrix[i][j]; //NOTE: eigen(row, col) vs glm(col, row)
+		}
+	}
+
+	// reference: https://stackoverflow.com/questions/50458712/c-find-eigenvalues-and-eigenvectors-of-matrix
+	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> eigenSolver;
+	eigenSolver.compute(covMatEigen);
+	Eigen::Vector3f eigenValues = eigenSolver.eigenvalues(); //NOTE: eigenvalues come sorted in ascending order
+	Eigen::Matrix3f eigenVectors = eigenSolver.eigenvectors(); //NOTE: eigenvectors come sorted corresponding to returned eigenvalues and are normalized. This returned matrix also corresponds to P in the diagonalization formula A = P*D*P^-1. Here A =:= covariance matrix
+
+	// convert eigenvector forms (eigen -> glm)...
+	glm::vec3 eigenV1 = glm::vec3(eigenVectors(0, 0), eigenVectors(1, 0), eigenVectors(2, 0));
+	glm::vec3 eigenV2 = glm::vec3(eigenVectors(0, 1), eigenVectors(1, 1), eigenVectors(2, 1));
+	glm::vec3 eigenV3 = glm::vec3(eigenVectors(0, 2), eigenVectors(1, 2), eigenVectors(2, 2));
+	
+	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
+	float minScalarAlongV1 = std::numeric_limits<float>::max();
+	float maxScalarAlongV1 = std::numeric_limits<float>::lowest();
+	float minScalarAlongV2 = std::numeric_limits<float>::max();
+	float maxScalarAlongV2 = std::numeric_limits<float>::lowest();
+	float minScalarAlongV3 = std::numeric_limits<float>::max();
+	float maxScalarAlongV3 = std::numeric_limits<float>::lowest();
+	for (glm::vec3 const& p : points) {
+		// project along eigenV1 axis...
+		float const projScalarV1 = glm::dot(p, eigenV1) / glm::length2(eigenV1);
+		if (projScalarV1 < minScalarAlongV1) minScalarAlongV1 = projScalarV1;
+		if (projScalarV1 > maxScalarAlongV1) maxScalarAlongV1 = projScalarV1;
+
+		// project along eigenV2 axis...
+		float const projScalarV2 = glm::dot(p, eigenV2) / glm::length2(eigenV2);
+		if (projScalarV2 < minScalarAlongV2) minScalarAlongV2 = projScalarV2;
+		if (projScalarV2 > maxScalarAlongV2) maxScalarAlongV2 = projScalarV2;
+
+		// project along eigenV3 axis...
+		float const projScalarV3 = glm::dot(p, eigenV3) / glm::length2(eigenV3);
+		if (projScalarV3 < minScalarAlongV3) minScalarAlongV3 = projScalarV3;
+		if (projScalarV3 > maxScalarAlongV3) maxScalarAlongV3 = projScalarV3;
+	}
+
+	// 4.5. sort the basis eigenvectors... eigenV1 < eigenV2 < eigenV3
+
+	float const tempExtentV1 = maxScalarAlongV1 - minScalarAlongV1;
+	float const tempExtentV2 = maxScalarAlongV2 - minScalarAlongV2;
+	float const tempExtentV3 = maxScalarAlongV3 - minScalarAlongV3;
+
+	glm::vec3 const tempEigenV1 = eigenV1;
+	glm::vec3 const tempEigenV2 = eigenV2;
+	glm::vec3 const tempEigenV3 = eigenV3;
+
+	float const tempMinV1 = minScalarAlongV1;
+	float const tempMaxV1 = maxScalarAlongV1;
+	float const tempMinV2 = minScalarAlongV2;
+	float const tempMaxV2 = maxScalarAlongV2;
+	float const tempMinV3 = minScalarAlongV3;
+	float const tempMaxV3 = maxScalarAlongV3;
+
+	std::vector<float> toSort = { tempExtentV1, tempExtentV2, tempExtentV3 };
+	std::sort(toSort.begin(), toSort.end()); // sort in ascending order
+
+	//NOTE: THIS IS A VERY BAD WAY OF DOING THIS, SINCE TIES WILL BREAK IT!!! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	if (tempExtentV1 == toSort.at(0)) {
+		
+	} else if (tempExtentV2 == toSort.at(0)) {
+		eigenV1 = tempEigenV2;
+		minScalarAlongV1 = tempMinV2;
+		maxScalarAlongV1 = tempMaxV2;
+	} else {
+		eigenV1 = tempEigenV3;
+		minScalarAlongV1 = tempMinV3;
+		maxScalarAlongV1 = tempMaxV3;
+	}
+
+	if (tempExtentV1 == toSort.at(1)) {
+		eigenV2 = tempEigenV1;
+		minScalarAlongV2 = tempMinV1;
+		maxScalarAlongV2 = tempMaxV1;
+	} else if (tempExtentV2 == toSort.at(1)) {
+
+	} else {
+		eigenV2 = tempEigenV3;
+		minScalarAlongV2 = tempMinV3;
+		maxScalarAlongV2 = tempMaxV3;
+	}
+
+	if (tempExtentV1 == toSort.at(2)) {
+		eigenV3 = tempEigenV1;
+		minScalarAlongV3 = tempMinV1;
+		maxScalarAlongV3 = tempMaxV1;
+	} else if (tempExtentV2 == toSort.at(2)) {
+		eigenV3 = tempEigenV2;
+		minScalarAlongV3 = tempMinV2;
+		maxScalarAlongV3 = tempMaxV2;
+	} else {
+
+	}
+
+
+	// 5. compute a cubic voxel size (side length)...
+	//TODO: make sure this is never 0. could clamp lower bound as epsilon or use something like 0.001
+	//TESTING THIS...
+	//float const avgExtent = ((maxScalarAlongV1 - minScalarAlongV1) + (maxScalarAlongV2 - minScalarAlongV2) + (maxScalarAlongV3 - minScalarAlongV3)) / 3;
+	//float const voxelSize = avgExtent / 100; // NOTE: increase denominator in order to increase voxel resolution (voxel count) - NOTE: that scaling the denom causes a cubic scale to the voxel count (so RAM explodes pretty quickly)
+	//float const voxelSize = 0.0139374686f;
+	float const voxelSize = m_voxelSize;
+
+	//TODO: pass in the same voxel size!!!!!!!!!!!!!!!!!!!!
+
+	// 6. voxelize our OBB into a slightly larger (or if lucky same size) 3D grid of cubes...
+	// this expanded voxelized OBB will have new min/max scalars along each of the 3 basis axes denoting boundaries
+	//NOTE: both the OBB and expanded voxelized-OBB will still have same centroid
+
+	float const midScalarAlongV1 = (minScalarAlongV1 + maxScalarAlongV1) / 2;
+	float const midScalarAlongV2 = (minScalarAlongV2 + maxScalarAlongV2) / 2;
+	float const midScalarAlongV3 = (minScalarAlongV3 + maxScalarAlongV3) / 2;
+
+	unsigned int const voxelCountAlongHalfV1 = glm::ceil((maxScalarAlongV1 - midScalarAlongV1) / voxelSize);
+	unsigned int const voxelCountAlongHalfV2 = glm::ceil((maxScalarAlongV2 - midScalarAlongV2) / voxelSize);
+	unsigned int const voxelCountAlongHalfV3 = glm::ceil((maxScalarAlongV3 - midScalarAlongV3) / voxelSize);
+
+	float const expandedHalfExtentV1 = voxelCountAlongHalfV1 * voxelSize;
+	float const expandedHalfExtentV2 = voxelCountAlongHalfV2 * voxelSize;
+	float const expandedHalfExtentV3 = voxelCountAlongHalfV3 * voxelSize;
+
+	float const expandedMinScalarAlongV1 = midScalarAlongV1 - expandedHalfExtentV1;
+	float const expandedMaxScalarAlongV1 = midScalarAlongV1 + expandedHalfExtentV1;
+	float const expandedMinScalarAlongV2 = midScalarAlongV2 - expandedHalfExtentV2;
+	float const expandedMaxScalarAlongV2 = midScalarAlongV2 + expandedHalfExtentV2;
+	float const expandedMinScalarAlongV3 = midScalarAlongV3 - expandedHalfExtentV3;
+	float const expandedMaxScalarAlongV3 = midScalarAlongV3 + expandedHalfExtentV3;
+
+	unsigned int const nV1 = 2 * voxelCountAlongHalfV1;
+	unsigned int const nV2 = 2 * voxelCountAlongHalfV2;
+	unsigned int const nV3 = 2 * voxelCountAlongHalfV3;
+
+	// TERMINATE IF OUR SLICE IS TOO THIN OR HIT MAX RECURSIVE DEPTH...
+	if (recursiveDepth >= s_MAX_RECURSIVE_DEPTH || nV1 < 10 || nV2 < 10 || nV3 < 10) {
+		// return OBB data as simple MeshObject...
+
+		std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+		//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+		//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+		//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+		// FROM 0 (000)
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(6);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(4);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(3);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(2);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(5);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(1);
+
+		// FROM 7 (111)
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(1);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(5);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(4);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(6);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(2);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(3);
+
+		return obb;
+	}
+
+
+	// 7. now insert each point in our point set into a voxel. Voxels can contain many points. By storing the actual point coordinates, we can both get a count and easily split later on if needed...
+	std::vector<std::vector<std::vector<std::vector<glm::vec3>>>> voxelsContainingPoints(nV3, std::vector<std::vector<std::vector<glm::vec3>>>(nV2, std::vector<std::vector<glm::vec3>>(nV1, std::vector<glm::vec3>())));
+
+	for (glm::vec3 const& p : points) {
+		// get voxel index i,j,k for this point coordinate
+		// [V3][V2][V1]
+
+		// project the point into OBB frame (measured by scalars along each of the 3 basis eigenvectors)...
+		// .x will be eigenV1 scalar, .y is V2, .z is V3
+		glm::vec3 const pLocal = glm::vec3(glm::dot(p, eigenV1) / glm::length2(eigenV1), glm::dot(p, eigenV2) / glm::length2(eigenV2), glm::dot(p, eigenV3) / glm::length2(eigenV3));
+
+		// check voxel its in (by mapping formula)
+		// inverse mapping formula (position to voxel index)
+		// i on V3, j on V2, k on V1
+		// inverse map back to indices i,j,k (single voxel)...
+
+		//TODO: need to handle top most voxels to also include ceil
+		unsigned int const indexI = glm::floor((pLocal.z - expandedMinScalarAlongV3) / voxelSize);
+		unsigned int const indexJ = glm::floor((pLocal.y - expandedMinScalarAlongV2) / voxelSize);
+		unsigned int const indexK = glm::floor((pLocal.x - expandedMinScalarAlongV1) / voxelSize);
+
+		// store point p in this voxel...
+		voxelsContainingPoints.at(indexI).at(indexJ).at(indexK).push_back(p);
+	}
+	// clear point set now that we've moved all the points out
+	points.clear();
+
+
+	float const eta = 0.75f;
+	float const zeta = 0.5f;
+	float const t2 = (maxScalarAlongV1 - minScalarAlongV1) / (maxScalarAlongV3 - minScalarAlongV3);
+	//unsigned int spliceIndex = 0;
+
+	// 8. a) RUN SLICING ALGO OVER EIGENV3...
+
+	bool terminatedV3 = false;
+	{
+		std::vector<unsigned int> fx(nV3, 0);
+		std::vector<int> classifyFx(nV3, 0);
+
+		for (unsigned int i = 0; i < nV3; ++i) {
+			unsigned int area = 0;
+			for (unsigned int j = 0; j < nV2; ++j) {
+				for (unsigned int k = 0; k < nV1; ++k) {
+					area += voxelsContainingPoints.at(i).at(j).at(k).size();
+				}
+			}
+			fx.at(i) = area;
+		}
+
+		// handle boundaries, if we have something like 1, 1, 1, 1, 5 - then the 4th 1 should be marked as a local minimum
+		// if we have something like 0, 0, 0, 1, 5 - then we trim the 0's and the 1 is NOT marked as a local minimum
+		// if we have something like 0, 0, 0, 1, 1, 1, 1, 5 - then we trim the 0's and get same situation as 1, 1, 1, 1, 5 and treat 4th 1 as a local minimum
+
+		int startIndex = -1;
+		int endIndex = -1;
+
+		// trim any leading 0's...
+		for (unsigned int i = 0; i < nV3; ++i) {
+			if (fx.at(i) > 0) {
+				startIndex = i;
+				break;
+			}
+		}
+		// trim any trailing 0's...
+		for (unsigned int i = nV3 - 1; i >= 0; --i) {
+			if (fx.at(i) > 0) {
+				endIndex = i;
+				break;
+			}
+		}
+
+		// TERMINATE...
+		if (-1 == startIndex || -1 == endIndex || startIndex == endIndex) terminatedV3 = true;
+
+		/*
+				{
+					// return OBB data as simple MeshObject...
+
+					std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+					//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+					//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+					//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+					// FROM 0 (000)
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(2);
+					obb->drawFaces.push_back(6);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(6);
+					obb->drawFaces.push_back(4);
+
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(1);
+					obb->drawFaces.push_back(3);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(3);
+					obb->drawFaces.push_back(2);
+
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(4);
+					obb->drawFaces.push_back(5);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(5);
+					obb->drawFaces.push_back(1);
+
+					// FROM 7 (111)
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(3);
+					obb->drawFaces.push_back(1);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(1);
+					obb->drawFaces.push_back(5);
+
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(5);
+					obb->drawFaces.push_back(4);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(4);
+					obb->drawFaces.push_back(6);
+
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(6);
+					obb->drawFaces.push_back(2);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(2);
+					obb->drawFaces.push_back(3);
+
+					return obb;
+				}
+		*/
+
+		//TODO: prevent very small slices by preventing marking of local minima that are too close to boundaries along axis
+		//NOTE: maxima are unnaffected
+		//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+		if (!terminatedV3) {
+			unsigned int localMinCount = 0;
+			unsigned int minArea = std::numeric_limits<unsigned int>::max();
+			unsigned int maxArea = 0;
+
+			if (fx.at(startIndex) > fx.at(startIndex + 1)) {
+				classifyFx.at(startIndex) = 1;
+				if (fx.at(startIndex) > maxArea) maxArea = fx.at(startIndex);
+				if (fx.at(startIndex) < minArea) minArea = fx.at(startIndex);
+			}
+			if (fx.at(endIndex) > fx.at(endIndex - 1)) {
+				classifyFx.at(endIndex) = 1;
+				if (fx.at(endIndex) > maxArea) maxArea = fx.at(endIndex);
+				if (fx.at(endIndex) < minArea) minArea = fx.at(endIndex);
+			}
+			for (unsigned int i = startIndex + 1; i < endIndex; ++i) {
+				//MAXIMUM...
+				if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) {
+					classifyFx.at(i) = 1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+				}
+				else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) {
+					classifyFx.at(i) = 1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+				}
+				//MINIMUM...
+				else if (i >= startIndex + 10 && i <= endIndex - 10) {
+					if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+						classifyFx.at(i) = -1;
+						if (fx.at(i) > maxArea) maxArea = fx.at(i);
+						if (fx.at(i) < minArea) minArea = fx.at(i);
+						++localMinCount;
+					}
+					else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+						classifyFx.at(i) = -1;
+						if (fx.at(i) > maxArea) maxArea = fx.at(i);
+						if (fx.at(i) < minArea) minArea = fx.at(i);
+						++localMinCount;
+					}
+				}
+			}
+
+			float const t1 = ((float)minArea) / maxArea;
+
+			if (0 == localMinCount || (t1 > eta && t2 > zeta)) terminatedV3 = true;
+
+			if (!terminatedV3) {
+				// OTHERWISE, CONTINUE!
+
+				// find the biggest JUMP...
+				//TODO: make sure our f(x) is not constant and thus have no minima
+				unsigned int spliceIndex = 0;
+				float maxDYDX = std::numeric_limits<float>::lowest();
+
+				//unsigned int minAreaTEMPTEST = std::numeric_limits<unsigned int>::max();
+				for (unsigned int i = 0; i < nV3; ++i) {
+					// if at a minimum...
+					if (-1 == classifyFx.at(i)) {
+
+						//TEMP TESTING SPLITTING AT LOWEST AREA
+						/*
+						if (fx.at(i) < minAreaTEMPTEST) {
+							minAreaTEMPTEST = fx.at(i);
+							spliceIndex = i;
+						}
+						*/
+
+						// find slope between this minimum and every other maximum...
+						for (unsigned int j = 0; j < nV3; ++j) {
+							if (1 == classifyFx.at(j)) {
+								//TODO: check this to make sure unsigned int difference doesnt screw up
+								//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+								int const dx = glm::abs<int>((int)j - (int)i);
+								int const dy = fx.at(j) - fx.at(i);
+								float const dydx = ((float)dy) / dx;
+
+								//TODO: could handle ties differently
+								if (dydx > maxDYDX) {
+									maxDYDX = dydx;
+									spliceIndex = i;
+								}
+							}
+						}
+					}
+				}
+
+
+				// SPLICE!!!
+
+				std::vector<glm::vec3> lowPointSet;
+				for (unsigned int i = 0; i <= spliceIndex; ++i) {
+					for (unsigned int j = 0; j < nV2; ++j) {
+						for (unsigned int k = 0; k < nV1; ++k) {
+							for (glm::vec3 const& p : voxelsContainingPoints.at(i).at(j).at(k)) lowPointSet.push_back(p);
+						}
+					}
+				}
+
+				std::vector<glm::vec3> highPointSet;
+				for (unsigned int i = spliceIndex+1; i < nV3; ++i) {
+					for (unsigned int j = 0; j < nV2; ++j) {
+						for (unsigned int k = 0; k < nV1; ++k) {
+							for (glm::vec3 const& p : voxelsContainingPoints.at(i).at(j).at(k)) highPointSet.push_back(p);
+						}
+					}
+				}
+
+
+				voxelsContainingPoints.clear(); // free
+
+				std::shared_ptr<MeshObject> lowOBBTree = generateOBBs(lowPointSet, recursiveDepth+1);
+				std::shared_ptr<MeshObject> highOBBTree = generateOBBs(highPointSet, recursiveDepth+1);
+
+				//TODO: stitch together 2 OBBTrees properly
+				//TEMP ~~~~~~ for now, just combine them into 1 mesh object preserving all data (only have drawVerts/drawFaces)
+
+				std::shared_ptr<MeshObject> stitchedOBBTree = std::make_shared<MeshObject>();
+				stitchedOBBTree->drawVerts = lowOBBTree->drawVerts;
+				stitchedOBBTree->drawVerts.insert(stitchedOBBTree->drawVerts.end(), highOBBTree->drawVerts.begin(), highOBBTree->drawVerts.end());
+
+				stitchedOBBTree->drawFaces = lowOBBTree->drawFaces;
+				for (GLuint const& f : highOBBTree->drawFaces) {
+					// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+					stitchedOBBTree->drawFaces.push_back(f + lowOBBTree->drawVerts.size());
+				}
+
+				return stitchedOBBTree;
+			}
+		}
+	}
+
+	// TERMINATED V3, try V2...
+	// 8. b) RUN SLICING ALGO OVER EIGENV2...
+
+	bool terminatedV2 = false;
+	{
+		std::vector<unsigned int> fx(nV2, 0);
+		std::vector<int> classifyFx(nV2, 0);
+
+		for (unsigned int i = 0; i < nV2; ++i) {
+			unsigned int area = 0;
+			for (unsigned int j = 0; j < nV3; ++j) {
+				for (unsigned int k = 0; k < nV1; ++k) {
+					area += voxelsContainingPoints.at(j).at(i).at(k).size();
+				}
+			}
+			fx.at(i) = area;
+		}
+
+		// handle boundaries, if we have something like 1, 1, 1, 1, 5 - then the 4th 1 should be marked as a local minimum
+		// if we have something like 0, 0, 0, 1, 5 - then we trim the 0's and the 1 is NOT marked as a local minimum
+		// if we have something like 0, 0, 0, 1, 1, 1, 1, 5 - then we trim the 0's and get same situation as 1, 1, 1, 1, 5 and treat 4th 1 as a local minimum
+
+		int startIndex = -1;
+		int endIndex = -1;
+
+		// trim any leading 0's...
+		for (unsigned int i = 0; i < nV2; ++i) {
+			if (fx.at(i) > 0) {
+				startIndex = i;
+				break;
+			}
+		}
+		// trim any trailing 0's...
+		for (unsigned int i = nV2 - 1; i >= 0; --i) {
+			if (fx.at(i) > 0) {
+				endIndex = i;
+				break;
+			}
+		}
+
+		// TERMINATE...
+		if (-1 == startIndex || -1 == endIndex || startIndex == endIndex) terminatedV2 = true;
+
+		/*
+				{
+					// return OBB data as simple MeshObject...
+
+					std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+					//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+					//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+					//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+					// FROM 0 (000)
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(2);
+					obb->drawFaces.push_back(6);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(6);
+					obb->drawFaces.push_back(4);
+
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(1);
+					obb->drawFaces.push_back(3);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(3);
+					obb->drawFaces.push_back(2);
+
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(4);
+					obb->drawFaces.push_back(5);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(5);
+					obb->drawFaces.push_back(1);
+
+					// FROM 7 (111)
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(3);
+					obb->drawFaces.push_back(1);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(1);
+					obb->drawFaces.push_back(5);
+
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(5);
+					obb->drawFaces.push_back(4);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(4);
+					obb->drawFaces.push_back(6);
+
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(6);
+					obb->drawFaces.push_back(2);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(2);
+					obb->drawFaces.push_back(3);
+
+					return obb;
+				}
+		*/
+
+		if (!terminatedV2) {
+			unsigned int localMinCount = 0;
+			unsigned int minArea = std::numeric_limits<unsigned int>::max();
+			unsigned int maxArea = 0;
+
+			if (fx.at(startIndex) > fx.at(startIndex + 1)) {
+				classifyFx.at(startIndex) = 1;
+				if (fx.at(startIndex) > maxArea) maxArea = fx.at(startIndex);
+				if (fx.at(startIndex) < minArea) minArea = fx.at(startIndex);
+			}
+			if (fx.at(endIndex) > fx.at(endIndex - 1)) {
+				classifyFx.at(endIndex) = 1;
+				if (fx.at(endIndex) > maxArea) maxArea = fx.at(endIndex);
+				if (fx.at(endIndex) < minArea) minArea = fx.at(endIndex);
+			}
+			for (unsigned int i = startIndex + 1; i < endIndex; ++i) {
+				//MAXIMUM...
+				if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) {
+					classifyFx.at(i) = 1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+				}
+				else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) {
+					classifyFx.at(i) = 1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+				}
+				//MINIMUM...
+				else if (i >= startIndex + 10 && i <= endIndex - 10) {
+					if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+						classifyFx.at(i) = -1;
+						if (fx.at(i) > maxArea) maxArea = fx.at(i);
+						if (fx.at(i) < minArea) minArea = fx.at(i);
+						++localMinCount;
+					}
+					else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+						classifyFx.at(i) = -1;
+						if (fx.at(i) > maxArea) maxArea = fx.at(i);
+						if (fx.at(i) < minArea) minArea = fx.at(i);
+						++localMinCount;
+					}
+				}
+/*
+				//MINIMUM...
+				else if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+					classifyFx.at(i) = -1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+					++localMinCount;
+				}
+				else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+					classifyFx.at(i) = -1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+					++localMinCount;
+				}
+*/
+			}
+
+			float const t1 = ((float)minArea) / maxArea;
+
+			if (0 == localMinCount || (t1 > eta && t2 > zeta)) terminatedV2 = true;
+
+			if (!terminatedV2) {
+				// OTHERWISE, CONTINUE!
+
+				// find the biggest JUMP...
+				//TODO: make sure our f(x) is not constant and thus have no minima
+				unsigned int spliceIndex = 0;
+				float maxDYDX = std::numeric_limits<float>::lowest();
+
+				//unsigned int minAreaTEMPTEST = std::numeric_limits<unsigned int>::max();
+				for (unsigned int i = 0; i < nV2; ++i) {
+					// if at a minimum...
+					if (-1 == classifyFx.at(i)) {
+
+						//TEMP TESTING SPLITTING AT LOWEST AREA
+						/*
+						if (fx.at(i) < minAreaTEMPTEST) {
+							minAreaTEMPTEST = fx.at(i);
+							spliceIndex = i;
+						}
+						*/
+
+						// find slope between this minimum and every other maximum...
+						for (unsigned int j = 0; j < nV2; ++j) {
+							if (1 == classifyFx.at(j)) {
+								//TODO: check this to make sure unsigned int difference doesnt screw up
+								//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+								int const dx = glm::abs<int>((int)j - (int)i);
+								int const dy = fx.at(j) - fx.at(i);
+								float const dydx = ((float)dy) / dx;
+
+								//TODO: could handle ties differently
+								if (dydx > maxDYDX) {
+									maxDYDX = dydx;
+									spliceIndex = i;
+								}
+							}
+						}
+					}
+				}
+
+
+				// SPLICE!!!
+
+				std::vector<glm::vec3> lowPointSet;
+				for (unsigned int i = 0; i <= spliceIndex; ++i) {
+					for (unsigned int j = 0; j < nV3; ++j) {
+						for (unsigned int k = 0; k < nV1; ++k) {
+							for (glm::vec3 const& p : voxelsContainingPoints.at(j).at(i).at(k)) lowPointSet.push_back(p);
+						}
+					}
+				}
+
+				std::vector<glm::vec3> highPointSet;
+				for (unsigned int i = spliceIndex+1; i < nV2; ++i) {
+					for (unsigned int j = 0; j < nV3; ++j) {
+						for (unsigned int k = 0; k < nV1; ++k) {
+							for (glm::vec3 const& p : voxelsContainingPoints.at(j).at(i).at(k)) highPointSet.push_back(p);
+						}
+					}
+				}
+
+
+				voxelsContainingPoints.clear(); // free
+
+				std::shared_ptr<MeshObject> lowOBBTree = generateOBBs(lowPointSet, recursiveDepth+1);
+				std::shared_ptr<MeshObject> highOBBTree = generateOBBs(highPointSet, recursiveDepth+1);
+
+				//TODO: stitch together 2 OBBTrees properly
+				//TEMP ~~~~~~ for now, just combine them into 1 mesh object preserving all data (only have drawVerts/drawFaces)
+
+				std::shared_ptr<MeshObject> stitchedOBBTree = std::make_shared<MeshObject>();
+				stitchedOBBTree->drawVerts = lowOBBTree->drawVerts;
+				stitchedOBBTree->drawVerts.insert(stitchedOBBTree->drawVerts.end(), highOBBTree->drawVerts.begin(), highOBBTree->drawVerts.end());
+
+				stitchedOBBTree->drawFaces = lowOBBTree->drawFaces;
+				for (GLuint const& f : highOBBTree->drawFaces) {
+					// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+					stitchedOBBTree->drawFaces.push_back(f + lowOBBTree->drawVerts.size());
+				}
+
+				return stitchedOBBTree;
+			}
+		}
+	}
+
+
+	// TERMINATED V3 and V2, try V1...
+	// 8. c) RUN SLICING ALGO OVER EIGENV1...
+
+	bool terminatedV1 = false;
+	{
+		std::vector<unsigned int> fx(nV1, 0);
+		std::vector<int> classifyFx(nV1, 0);
+
+		for (unsigned int i = 0; i < nV1; ++i) {
+			unsigned int area = 0;
+			for (unsigned int j = 0; j < nV2; ++j) {
+				for (unsigned int k = 0; k < nV3; ++k) {
+					area += voxelsContainingPoints.at(k).at(j).at(i).size();
+				}
+			}
+			fx.at(i) = area;
+		}
+
+		// handle boundaries, if we have something like 1, 1, 1, 1, 5 - then the 4th 1 should be marked as a local minimum
+		// if we have something like 0, 0, 0, 1, 5 - then we trim the 0's and the 1 is NOT marked as a local minimum
+		// if we have something like 0, 0, 0, 1, 1, 1, 1, 5 - then we trim the 0's and get same situation as 1, 1, 1, 1, 5 and treat 4th 1 as a local minimum
+
+		int startIndex = -1;
+		int endIndex = -1;
+
+		// trim any leading 0's...
+		for (unsigned int i = 0; i < nV1; ++i) {
+			if (fx.at(i) > 0) {
+				startIndex = i;
+				break;
+			}
+		}
+		// trim any trailing 0's...
+		for (unsigned int i = nV1 - 1; i >= 0; --i) {
+			if (fx.at(i) > 0) {
+				endIndex = i;
+				break;
+			}
+		}
+
+		// TERMINATE...
+		if (-1 == startIndex || -1 == endIndex || startIndex == endIndex) terminatedV1 = true;
+
+		/*
+				{
+					// return OBB data as simple MeshObject...
+
+					std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+					obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+					//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+					//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+					//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+					// FROM 0 (000)
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(2);
+					obb->drawFaces.push_back(6);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(6);
+					obb->drawFaces.push_back(4);
+
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(1);
+					obb->drawFaces.push_back(3);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(3);
+					obb->drawFaces.push_back(2);
+
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(4);
+					obb->drawFaces.push_back(5);
+
+					obb->drawFaces.push_back(0);
+					obb->drawFaces.push_back(5);
+					obb->drawFaces.push_back(1);
+
+					// FROM 7 (111)
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(3);
+					obb->drawFaces.push_back(1);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(1);
+					obb->drawFaces.push_back(5);
+
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(5);
+					obb->drawFaces.push_back(4);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(4);
+					obb->drawFaces.push_back(6);
+
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(6);
+					obb->drawFaces.push_back(2);
+
+					obb->drawFaces.push_back(7);
+					obb->drawFaces.push_back(2);
+					obb->drawFaces.push_back(3);
+
+					return obb;
+				}
+		*/
+
+		if (!terminatedV1) {
+			unsigned int localMinCount = 0;
+			unsigned int minArea = std::numeric_limits<unsigned int>::max();
+			unsigned int maxArea = 0;
+
+			if (fx.at(startIndex) > fx.at(startIndex + 1)) {
+				classifyFx.at(startIndex) = 1;
+				if (fx.at(startIndex) > maxArea) maxArea = fx.at(startIndex);
+				if (fx.at(startIndex) < minArea) minArea = fx.at(startIndex);
+			}
+			if (fx.at(endIndex) > fx.at(endIndex - 1)) {
+				classifyFx.at(endIndex) = 1;
+				if (fx.at(endIndex) > maxArea) maxArea = fx.at(endIndex);
+				if (fx.at(endIndex) < minArea) minArea = fx.at(endIndex);
+			}
+			for (unsigned int i = startIndex + 1; i < endIndex; ++i) {
+				//MAXIMUM...
+				if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) {
+					classifyFx.at(i) = 1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+				}
+				else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) {
+					classifyFx.at(i) = 1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+				}
+				//MINIMUM...
+				else if (i >= startIndex + 10 && i <= endIndex - 10) {
+					if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+						classifyFx.at(i) = -1;
+						if (fx.at(i) > maxArea) maxArea = fx.at(i);
+						if (fx.at(i) < minArea) minArea = fx.at(i);
+						++localMinCount;
+					}
+					else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+						classifyFx.at(i) = -1;
+						if (fx.at(i) > maxArea) maxArea = fx.at(i);
+						if (fx.at(i) < minArea) minArea = fx.at(i);
+						++localMinCount;
+					}
+				}
+/*
+				//MINIMUM...
+				else if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+					classifyFx.at(i) = -1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+					++localMinCount;
+				}
+				else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+					classifyFx.at(i) = -1;
+					if (fx.at(i) > maxArea) maxArea = fx.at(i);
+					if (fx.at(i) < minArea) minArea = fx.at(i);
+					++localMinCount;
+				}
+*/
+			}
+
+			float const t1 = ((float)minArea) / maxArea;
+
+			if (0 == localMinCount || (t1 > eta && t2 > zeta)) terminatedV1 = true;
+
+			if (!terminatedV1) {
+				// OTHERWISE, CONTINUE!
+
+				// find the biggest JUMP...
+				//TODO: make sure our f(x) is not constant and thus have no minima
+				unsigned int spliceIndex = 0;
+				float maxDYDX = std::numeric_limits<float>::lowest();
+
+				//unsigned int minAreaTEMPTEST = std::numeric_limits<unsigned int>::max();
+				for (unsigned int i = 0; i < nV1; ++i) {
+					// if at a minimum...
+					if (-1 == classifyFx.at(i)) {
+
+						//TEMP TESTING SPLITTING AT LOWEST AREA
+						/*
+						if (fx.at(i) < minAreaTEMPTEST) {
+							minAreaTEMPTEST = fx.at(i);
+							spliceIndex = i;
+						}
+						*/
+
+						// find slope between this minimum and every other maximum...
+						for (unsigned int j = 0; j < nV1; ++j) {
+							if (1 == classifyFx.at(j)) {
+								//TODO: check this to make sure unsigned int difference doesnt screw up
+								//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+								int const dx = glm::abs<int>((int)j - (int)i);
+								int const dy = fx.at(j) - fx.at(i);
+								float const dydx = ((float)dy) / dx;
+
+								//TODO: could handle ties differently
+								if (dydx > maxDYDX) {
+									maxDYDX = dydx;
+									spliceIndex = i;
+								}
+							}
+						}
+					}
+				}
+
+
+				// SPLICE!!!
+
+				std::vector<glm::vec3> lowPointSet;
+				for (unsigned int i = 0; i <= spliceIndex; ++i) {
+					for (unsigned int j = 0; j < nV2; ++j) {
+						for (unsigned int k = 0; k < nV3; ++k) {
+							for (glm::vec3 const& p : voxelsContainingPoints.at(k).at(j).at(i)) lowPointSet.push_back(p);
+						}
+					}
+				}
+
+				std::vector<glm::vec3> highPointSet;
+				for (unsigned int i = spliceIndex+1; i < nV1; ++i) {
+					for (unsigned int j = 0; j < nV2; ++j) {
+						for (unsigned int k = 0; k < nV3; ++k) {
+							for (glm::vec3 const& p : voxelsContainingPoints.at(k).at(j).at(i)) highPointSet.push_back(p);
+						}
+					}
+				}
+
+
+				voxelsContainingPoints.clear(); // free
+
+				std::shared_ptr<MeshObject> lowOBBTree = generateOBBs(lowPointSet, recursiveDepth+1);
+				std::shared_ptr<MeshObject> highOBBTree = generateOBBs(highPointSet, recursiveDepth+1);
+
+				//TODO: stitch together 2 OBBTrees properly
+				//TEMP ~~~~~~ for now, just combine them into 1 mesh object preserving all data (only have drawVerts/drawFaces)
+
+				std::shared_ptr<MeshObject> stitchedOBBTree = std::make_shared<MeshObject>();
+				stitchedOBBTree->drawVerts = lowOBBTree->drawVerts;
+				stitchedOBBTree->drawVerts.insert(stitchedOBBTree->drawVerts.end(), highOBBTree->drawVerts.begin(), highOBBTree->drawVerts.end());
+
+				stitchedOBBTree->drawFaces = lowOBBTree->drawFaces;
+				for (GLuint const& f : highOBBTree->drawFaces) {
+					// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+					stitchedOBBTree->drawFaces.push_back(f + lowOBBTree->drawVerts.size());
+				}
+
+				return stitchedOBBTree;
+			}
+		}
+	}
+
+
+	// TERMINATED V3, TERMINATED V2, TERMINATED V1
+	// if you get here, then everything has terminated and you must just return the OBB...
+
+	// return OBB data as simple MeshObject...
+
+	std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+	obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+	//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+	// FROM 0 (000)
+
+	obb->drawFaces.push_back(0);
+	obb->drawFaces.push_back(2);
+	obb->drawFaces.push_back(6);
+
+	obb->drawFaces.push_back(0);
+	obb->drawFaces.push_back(6);
+	obb->drawFaces.push_back(4);
+
+
+	obb->drawFaces.push_back(0);
+	obb->drawFaces.push_back(1);
+	obb->drawFaces.push_back(3);
+
+	obb->drawFaces.push_back(0);
+	obb->drawFaces.push_back(3);
+	obb->drawFaces.push_back(2);
+
+
+	obb->drawFaces.push_back(0);
+	obb->drawFaces.push_back(4);
+	obb->drawFaces.push_back(5);
+
+	obb->drawFaces.push_back(0);
+	obb->drawFaces.push_back(5);
+	obb->drawFaces.push_back(1);
+
+	// FROM 7 (111)
+
+	obb->drawFaces.push_back(7);
+	obb->drawFaces.push_back(3);
+	obb->drawFaces.push_back(1);
+
+	obb->drawFaces.push_back(7);
+	obb->drawFaces.push_back(1);
+	obb->drawFaces.push_back(5);
+
+
+	obb->drawFaces.push_back(7);
+	obb->drawFaces.push_back(5);
+	obb->drawFaces.push_back(4);
+
+	obb->drawFaces.push_back(7);
+	obb->drawFaces.push_back(4);
+	obb->drawFaces.push_back(6);
+
+
+	obb->drawFaces.push_back(7);
+	obb->drawFaces.push_back(6);
+	obb->drawFaces.push_back(2);
+
+	obb->drawFaces.push_back(7);
+	obb->drawFaces.push_back(2);
+	obb->drawFaces.push_back(3);
+
+	return obb;
+
+
+/*
+			// return OBB data as simple MeshObject...
+
+			std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+			obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+			obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+			//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+			//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+			//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+			// FROM 0 (000)
+
+			obb->drawFaces.push_back(0);
+			obb->drawFaces.push_back(2);
+			obb->drawFaces.push_back(6);
+
+			obb->drawFaces.push_back(0);
+			obb->drawFaces.push_back(6);
+			obb->drawFaces.push_back(4);
+
+
+			obb->drawFaces.push_back(0);
+			obb->drawFaces.push_back(1);
+			obb->drawFaces.push_back(3);
+
+			obb->drawFaces.push_back(0);
+			obb->drawFaces.push_back(3);
+			obb->drawFaces.push_back(2);
+
+
+			obb->drawFaces.push_back(0);
+			obb->drawFaces.push_back(4);
+			obb->drawFaces.push_back(5);
+
+			obb->drawFaces.push_back(0);
+			obb->drawFaces.push_back(5);
+			obb->drawFaces.push_back(1);
+
+			// FROM 7 (111)
+
+			obb->drawFaces.push_back(7);
+			obb->drawFaces.push_back(3);
+			obb->drawFaces.push_back(1);
+
+			obb->drawFaces.push_back(7);
+			obb->drawFaces.push_back(1);
+			obb->drawFaces.push_back(5);
+
+
+			obb->drawFaces.push_back(7);
+			obb->drawFaces.push_back(5);
+			obb->drawFaces.push_back(4);
+
+			obb->drawFaces.push_back(7);
+			obb->drawFaces.push_back(4);
+			obb->drawFaces.push_back(6);
+
+
+			obb->drawFaces.push_back(7);
+			obb->drawFaces.push_back(6);
+			obb->drawFaces.push_back(2);
+
+			obb->drawFaces.push_back(7);
+			obb->drawFaces.push_back(2);
+			obb->drawFaces.push_back(3);
+
+			return obb;
+		}
+*/
+		
+
+
+
+
+
+	// 8. check TERMINATION CONDITION...
+
+	// 8.1. compute T1...
+	//TODO: not sure if this termination condition must check all 3 scan directions, but for the time being, we'll just use eigenV3 scan direction
+	// find the global min/max cross-sectional areas scanning along eigenV3 direction
+
+
+	// 8.2. compute T2...
+	//NOTE: using bounds of non-expanded OBB
+	//float const t2 = (maxScalarAlongV1 - minScalarAlongV1) / (maxScalarAlongV3 - minScalarAlongV3);
+
+	//TODO: later on let the user pass in the 2 termination constants (could just set private vars in Program.h)
+	//float const eta = 0.8f;
+	//float const zeta = 0.3f;
+
+
+	// RUN SPLICING ALGO OVER EIGENV3...
+
+/*
+	unsigned int minArea = std::numeric_limits<unsigned int>::max();
+	unsigned int maxArea = std::numeric_limits<unsigned int>::min();
+
+	for (unsigned int i = 0; i < nV3; ++i) {
+		unsigned int area = 0;
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				area += voxelsContainingPoints.at(i).at(j).at(k).size();
+			}
+		}
+		if (area > 0) {
+			if (area < minArea) minArea = area;
+			if (area > maxArea) maxArea = area;
+		}
+	}
+
+	float const t1 = ((float)minArea) / maxArea;
+*/
+
+	// (BASE CASE) termination condition...
+/*
+	if (t1 > eta && t2 > zeta) {
+		// return OBB data as simple MeshObject...
+
+		std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+		//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+		//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+		//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+		// FROM 0 (000)
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(6);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(4);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(3);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(2);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(5);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(1);
+
+		// FROM 7 (111)
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(1);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(5);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(4);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(6);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(2);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(3);
+
+		return obb;
+	}
+*/
+
+	// get here if we haven't terminated yet
+	// 9. SLICE the point set contained within this OBB into 2 subsets (DIVIDE)
+
+	// find the x value where to splice (splice at local minimum x that meets jump conditions)
+
+	// first, locate the local minima (must be between 2 maxima - either local or boundaries)
+
+	// 0 for NEITHER, -1 FOR MINIMUM, 1 FOR MAXIMUM
+	//TODO: can move this up into the global min/max scan as well
+	
+/*
+	std::vector<unsigned int> fx(nV3, 0);
+	std::vector<int> classifyFx(nV3, 0);
+
+	for (unsigned int i = 0; i < nV3; ++i) {
+		unsigned int area = 0;
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				area += voxelsContainingPoints.at(i).at(j).at(k).size();
+			}
+		}
+		fx.at(i) = area;
+	}
+*/
+
+	//TODO: must handle flat lines!!!! (mark endpoints of flat line at same state (minimum or maximum)
+	//TODO: if entire f(x) is constant, then just terminate!!! - this is highly unlikely, but possible with flat geometry
+
+	// handle boundaries...
+	//NOTE: i'm assuming nV3 (and all axes for that matter are double-digit?)
+	//NOTE: here i'm assuming boundaries aren't flat (same equal area)
+	//NOTE: what if area is 0! - it shouldnt be since its a boundary, but might be possible
+	//if (fx.at(0) > fx.at(1)) classifyFx.at(0) = 1;
+	//if (fx.at(nV3-1) > fx.at(nV3-2)) classifyFx.at(nV3-1) = 1;
+
+/*
+	for (unsigned int i = 1; i < nV3-1; ++i) {
+		//MAXIMUM...
+		if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) classifyFx.at(i) = 1;
+		else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) classifyFx.at(i) = 1;
+		//MINIMUM...
+		else if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) classifyFx.at(i) = -1;
+		else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) classifyFx.at(i) = -1;
+	}
+
+	// find the biggest JUMP...
+	//TODO: make sure our f(x) is not constant and thus have no minima
+	unsigned int spliceIndex = 0;
+	float maxDYDX = std::numeric_limits<float>::min();
+
+	//unsigned int minAreaTEMPTEST = std::numeric_limits<unsigned int>::max();
+	for (unsigned int i = 0; i < nV3; ++i) {
+		// if at a minimum...
+		if (-1 == classifyFx.at(i)) {
+*/
+			//TEMP TESTING SPLITTING AT LOWEST AREA
+			/*
+			if (fx.at(i) < minAreaTEMPTEST) {
+				minAreaTEMPTEST = fx.at(i);
+				spliceIndex = i;
+			}
+			*/
+/*
+			// find slope between this minimum and every other maximum...
+			for (unsigned int j = 0; j < nV3; ++j) {
+				if (1 == classifyFx.at(j)) {
+					//TODO: check this to make sure unsigned int difference doesnt screw up
+					//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+					int const dx = glm::abs(j - i);
+					int const dy = fx.at(j) - fx.at(i);
+					float const dydx = ((float)dy) / dx;
+
+					//TODO: could handle ties differently
+					if (dydx > maxDYDX) {
+						maxDYDX = dydx;
+						spliceIndex = i;
+					}
+				}
+			}
+		}
+	}
+*/
+
+/*
+	// TERMINATE!!!
+	if (maxDYDX < 10.0f) {
+		// return OBB data as simple MeshObject...
+
+		std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+		//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+		//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+		//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+		// FROM 0 (000)
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(6);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(4);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(3);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(2);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(5);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(1);
+
+		// FROM 7 (111)
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(1);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(5);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(4);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(6);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(2);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(3);
+
+		return obb;
+	}
+*/
+
+/*
+	// SPLICE!!!
+
+	std::vector<glm::vec3> lowPointSet;
+	for (unsigned int i = 0; i < spliceIndex; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				for (glm::vec3 const& p : voxelsContainingPoints.at(i).at(j).at(k)) lowPointSet.push_back(p);
+			}
+		}
+	}
+
+	std::vector<glm::vec3> highPointSet;
+	for (unsigned int i = spliceIndex; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				for (glm::vec3 const& p : voxelsContainingPoints.at(i).at(j).at(k)) highPointSet.push_back(p);
+			}
+		}
+	}
+*/
+	//TEMP ~~~~~~~~~~~~gonna just add in the trivial slicing rule (through barycenter - plane with normal parallel to eigenV3)
+
+/*
+	std::vector<glm::vec3> lowPointSet;
+	for (unsigned int i = 0; i < voxelCountAlongHalfV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				for (glm::vec3 const& p : voxelsContainingPoints.at(i).at(j).at(k)) lowPointSet.push_back(p);
+			}
+		}
+	}
+
+	std::vector<glm::vec3> highPointSet;
+	for (unsigned int i = voxelCountAlongHalfV3; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				for (glm::vec3 const& p : voxelsContainingPoints.at(i).at(j).at(k)) highPointSet.push_back(p);
+			}
+		}
+	}
+*/
+
+	//TESTING THIS TEMP~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/*
+	if (lowPointSet.size() < 5000 || highPointSet.size() < 5000) { // terminate
+		// return OBB data as simple MeshObject...
+
+		std::shared_ptr<MeshObject> obb = std::make_shared<MeshObject>();
+
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+		obb->drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+		//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+		//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+		//TODO: simplify this triangulation into an algorithm (especially one that could allow easy reroval of indices making up the merged triangle faces of 2 side-by-side OBBs in tree)...
+
+		// FROM 0 (000)
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(6);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(4);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(3);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(2);
+
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(5);
+
+		obb->drawFaces.push_back(0);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(1);
+
+		// FROM 7 (111)
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(3);
+		obb->drawFaces.push_back(1);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(1);
+		obb->drawFaces.push_back(5);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(5);
+		obb->drawFaces.push_back(4);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(4);
+		obb->drawFaces.push_back(6);
+
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(6);
+		obb->drawFaces.push_back(2);
+
+		obb->drawFaces.push_back(7);
+		obb->drawFaces.push_back(2);
+		obb->drawFaces.push_back(3);
+
+		return obb;
+	}
+*/
+
+/*
+	voxelsContainingPoints.clear(); // free
+
+	std::shared_ptr<MeshObject> lowOBBTree = generateOBBs(lowPointSet);
+	std::shared_ptr<MeshObject> highOBBTree = generateOBBs(highPointSet);
+
+	//TODO: stitch together 2 OBBTrees properly
+	//TEMP ~~~~~~ for now, just combine them into 1 mesh object preserving all data (only have drawVerts/drawFaces)
+
+	std::shared_ptr<MeshObject> stitchedOBBTree = std::make_shared<MeshObject>();
+	stitchedOBBTree->drawVerts = lowOBBTree->drawVerts;
+	stitchedOBBTree->drawVerts.insert(stitchedOBBTree->drawVerts.end(), highOBBTree->drawVerts.begin(), highOBBTree->drawVerts.end());
+	
+	stitchedOBBTree->drawFaces = lowOBBTree->drawFaces;
+	for (GLuint const& f : highOBBTree->drawFaces) {
+		// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+		stitchedOBBTree->drawFaces.push_back(f + lowOBBTree->drawVerts.size());
+	}
+
+	return stitchedOBBTree;
+*/
+	//return nullptr;
+}
+
+
+
+
+
