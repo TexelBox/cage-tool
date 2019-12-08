@@ -136,11 +136,13 @@ private:
 
 
 	unsigned int m_maxRecursiveDepth = 100;
+	float m_eta = 1.1f; // for t1
+	float m_zeta = 1.1f; // for t2
 
 
 	//NOTE: RETURN -1 on no index found
-	int searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
-	int searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
-	int searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
+	int searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2);
+	int searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2);
+	int searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2);
 
 };

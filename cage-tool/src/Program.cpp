@@ -306,6 +306,7 @@ void Program::drawUI() {
 
 			ImGui::PushItemWidth(200.0f);
 
+			ImGui::Text("NOTE: these transforms only apply visually, they don't actually modify the internally stored positions");
 
 			ImGui::Text("POSITION");
 			float xPos = m_model->getPosition().x;
@@ -364,6 +365,9 @@ void Program::drawUI() {
 		if (nullptr != m_cage) {
 			ImGui::Text("CAGE");
 
+			ImGui::Text("tip: if you wish to modify cage vert positions, clear the cage weights, right click any cage verts and use keys to translate them");
+			ImGui::Text("otherwise, compute cage weights and then deform model as usual");
+
 			if (ImGui::Button("SELECT ALL VERTS")) selectCageVerts(0, m_cage->colours.size());
 			ImGui::SameLine();
 			if (ImGui::Button("UNSELECT ALL VERTS")) unselectCageVerts(0, m_cage->colours.size());
@@ -372,6 +376,7 @@ void Program::drawUI() {
 
 			ImGui::PushItemWidth(200.0f);
 
+			ImGui::Text("NOTE: these transforms only apply visually, they don't actually modify the internally stored positions");
 
 			ImGui::Text("POSITION");
 			float xPos = m_cage->getPosition().x;
@@ -456,8 +461,24 @@ void Program::drawUI() {
 			if (ImGui::Button("CLEAR CAGE")) clearCage();
 		} else {
 			if (nullptr != m_model) {
+				ImGui::PushItemWidth(200.0f);
+
+				ImGui::Text("TERMINATION CONSTANTS");
+
 				ImGui::SliderInt("max recursive depth", reinterpret_cast<int*>(&m_maxRecursiveDepth), 0, 100);
 				m_maxRecursiveDepth = glm::clamp<unsigned int>(m_maxRecursiveDepth, 0, 100);
+				
+				ImGui::SliderFloat("eta (t1 termination constant - jump tolerance (model shape))", &m_eta, 0.0f, 1.1f);
+				m_eta = glm::clamp<float>(m_eta, 0.0f, 1.1f);
+
+				ImGui::SliderFloat("zeta (t2 termination constant - regularity (obb shape)", &m_zeta, 0.0f, 1.1f);
+				m_zeta = glm::clamp<float>(m_zeta, 0.0f, 1.1f);
+
+				ImGui::Text("NOTE: to practically disable these termination conditions, set values to 100, 1.1, 1.1 respectively");
+				ImGui::Text("NOTE: if any of these 3 constants is set higher, then the termination condition is more loose");
+
+				ImGui::PopItemWidth();
+
 				if (ImGui::Button("GENERATE CAGE")) generateCage2();
 			}
 			
@@ -3907,31 +3928,35 @@ MeshTree Program::generateMeshTree(std::vector<std::vector<std::vector<unsigned 
 
 	unsigned int lastAxisSearched = 0;
 
+	unsigned int const l_min = glm::min<unsigned int>(extentV1, glm::min<unsigned int>(extentV2, extentV3));
+	unsigned int const l_max = glm::max<unsigned int>(extentV1, glm::max<unsigned int>(extentV2, extentV3));
+	float const t2 = ((float)l_min) / ((float)l_max);
+
 	if (extentV1 >= extentV2 && extentV1 >= extentV3) {
 		// search V1...
-		spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+		spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 		lastAxisSearched = SPLIT_V1;
 
 		if (-1 == spliceIndex) {
 			if (extentV2 >= extentV3) {
 				// search V2...
-				spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 				lastAxisSearched = SPLIT_V2;
 
 				if (-1 == spliceIndex) {
 					// search V3...
-					spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 					lastAxisSearched = SPLIT_V3;
 				}
 			}
 			else {
 				// search V3...
-				spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 				lastAxisSearched = SPLIT_V3;
 
 				if (-1 == spliceIndex) {
 					// search V2...
-					spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 					lastAxisSearched = SPLIT_V2;
 				}
 			}
@@ -3939,29 +3964,29 @@ MeshTree Program::generateMeshTree(std::vector<std::vector<std::vector<unsigned 
 	}
 	else if (extentV2 >= extentV1 && extentV2 >= extentV3) {
 		// search V2...
-		spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+		spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 		lastAxisSearched = SPLIT_V2;
 
 		if (-1 == spliceIndex) {
 			if (extentV1 >= extentV3) {
 				// search V1...
-				spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 				lastAxisSearched = SPLIT_V1;
 
 				if (-1 == spliceIndex) {
 					// search V3...
-					spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 					lastAxisSearched = SPLIT_V3;
 				}
 			}
 			else {
 				// search V3...
-				spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 				lastAxisSearched = SPLIT_V3;
 
 				if (-1 == spliceIndex) {
 					// search V1...
-					spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 					lastAxisSearched = SPLIT_V1;
 				}
 			}
@@ -3969,29 +3994,29 @@ MeshTree Program::generateMeshTree(std::vector<std::vector<std::vector<unsigned 
 	}
 	else {
 		// search V3...
-		spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+		spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 		lastAxisSearched = SPLIT_V3;
 
 		if (-1 == spliceIndex) {
 			if (extentV1 >= extentV2) {
 				// search V1...
-				spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 				lastAxisSearched = SPLIT_V1;
 
 				if (-1 == spliceIndex) {
 					// search V2...
-					spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 					lastAxisSearched = SPLIT_V2;
 				}
 			}
 			else {
 				// search V2...
-				spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 				lastAxisSearched = SPLIT_V2;
 
 				if (-1 == spliceIndex) {
 					// search V1...
-					spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, t2);
 					lastAxisSearched = SPLIT_V1;
 				}
 			}
@@ -4156,7 +4181,7 @@ MeshTree Program::generateMeshTree(std::vector<std::vector<std::vector<unsigned 
 
 
 //NOTE: RETURN -1 on no index found
-int Program::searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+int Program::searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2) {
 	
 	unsigned int const nV1 = (maxV1Index - minV1Index) + 1;
 	unsigned int const nV2 = (maxV2Index - minV2Index) + 1;
@@ -4246,9 +4271,9 @@ int Program::searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsi
 		}
 	}
 
-	//TODO: could add in t1/t2 termination conditions here (or just handle t1 here and then handle t2 before even getting here by caller)
+	float const t1 = ((float)minArea) / maxArea;
 	// TERMINATE...
-	if (0 == localMinCount) return -1;
+	if (0 == localMinCount || (t1 > m_eta && t2 > m_zeta)) return -1;
 
 
 	//TODO: ignore local minima with more than 1 part in cross-section
@@ -4283,7 +4308,7 @@ int Program::searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsi
 
 
 //NOTE: RETURN -1 on no index found
-int Program::searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+int Program::searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2) {
 
 	unsigned int const nV1 = (maxV1Index - minV1Index) + 1;
 	unsigned int const nV2 = (maxV2Index - minV2Index) + 1;
@@ -4373,9 +4398,9 @@ int Program::searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsi
 		}
 	}
 
-	//TODO: could add in t1/t2 termination conditions here (or just handle t1 here and then handle t2 before even getting here by caller)
+	float const t1 = ((float)minArea) / maxArea;
 	// TERMINATE...
-	if (0 == localMinCount) return -1;
+	if (0 == localMinCount || (t1 > m_eta && t2 > m_zeta)) return -1;
 
 
 	//TODO: ignore local minima with more than 1 part in cross-section
@@ -4410,7 +4435,7 @@ int Program::searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsi
 
 
 //NOTE: RETURN -1 on no index found
-int Program::searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+int Program::searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2) {
 
 	unsigned int const nV1 = (maxV1Index - minV1Index) + 1;
 	unsigned int const nV2 = (maxV2Index - minV2Index) + 1;
@@ -4500,9 +4525,9 @@ int Program::searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsi
 		}
 	}
 
-	//TODO: could add in t1/t2 termination conditions here (or just handle t1 here and then handle t2 before even getting here by caller)
+	float const t1 = ((float)minArea) / maxArea;
 	// TERMINATE...
-	if (0 == localMinCount) return -1;
+	if (0 == localMinCount || (t1 > m_eta && t2 > m_zeta)) return -1;
 
 
 	//TODO: ignore local minima with more than 1 part in cross-section
