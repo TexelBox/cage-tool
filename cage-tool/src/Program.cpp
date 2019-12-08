@@ -363,6 +363,9 @@ void Program::drawUI() {
 		if (nullptr != m_cage) {
 			ImGui::Text("CAGE");
 
+			ImGui::SliderFloat("selected cage vert translation amount", &m_deltaMove, 0.01f, 1.0f);
+			if (m_deltaMove < 0.01f) m_deltaMove = 0.01f; // clamp lower bound (possible for ctrl+c)
+
 			ImGui::Text("tip: if you wish to modify cage vert positions, clear the cage weights, right click any cage verts and use keys to translate them");
 			ImGui::Text("otherwise, compute cage weights and then deform model as usual");
 

@@ -19,9 +19,7 @@ void InputHandler::key(GLFWwindow *window, int key, int scancode, int action, in
 
 	if (GLFW_PRESS == action || GLFW_REPEAT == action) { // key press, or press & hold
 		
-		//TODO: figure out better way to control the delta of translation (e.g. automatic based on zoom level? by user control in imgui?
-
-		float const delta = 1.0f;
+		float const delta = program->getDeltaMove();
 
 		if (GLFW_KEY_W == key) {
 			program->translateSelectedCageVerts(glm::vec3(0.0f, delta, 0.0f));
