@@ -17,6 +17,28 @@
 #include "RenderEngine.h"
 
 
+
+struct MeshTree {
+	std::vector<glm::vec3> m_vertexCoords; // .x (in V1 axis), .y (in V2 axis), .z (in V3 axis) - most will be integers, except for verts added for triangulation of cutting plane area
+	std::vector<unsigned int> m_faceIndices; // 3 indices in a row correspond to a triangle face (CCW winding) of 3 verts in m_vertexCoords
+};
+
+
+//NOTE: m_axis should be normalized
+//NOTE: m_max >= m_min is assumed
+struct SortableAxis {
+	glm::vec3 m_axis;
+	float m_min;
+	float m_max;
+
+	SortableAxis(glm::vec3 const axis, float const min, float const max) : m_axis(axis), m_min(min), m_max(max) {}
+
+	bool operator<(SortableAxis const& sa) const {
+		return (m_max - m_min) < (sa.m_max - sa.m_min);
+	}
+};
+
+
 //NOTE: even if we don't implement HC or GC, this is future proof
 enum CoordinateTypes {
 	MVC = 0,
@@ -85,8 +107,40 @@ private:
 	std::vector<glm::vec3> generatePointSetP();
 	std::shared_ptr<MeshObject> generateOBBs(std::vector<glm::vec3> &points, unsigned int recursiveDepth);
 
-	float m_voxelSize = 0.0f;
+	
+
+
 
 	//int recursiveDepthTest = 0;
+
+
+
+	void generateCage2();
+	std::vector<glm::vec3> generatePointSetP2(MeshObject &out_obb, MeshObject &out_pointSetP);
+
+	float m_voxelSize = 0.0f;
+	glm::vec3 m_eigenV1 = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 m_eigenV2 = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 m_eigenV3 = glm::vec3(0.0f, 0.0f, 0.0f);
+
+	float m_expandedMinScalarAlongV1 = 0.0f;
+	float m_expandedMinScalarAlongV2 = 0.0f;
+	float m_expandedMinScalarAlongV3 = 0.0f;
+
+
+
+	std::vector<std::vector<std::vector<unsigned int>>> generateOBBSpace(std::vector<glm::vec3> const& pointSetP);
+	MeshTree generateMeshTree(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int minV1Index, unsigned int maxV1Index, unsigned int minV2Index, unsigned int maxV2Index, unsigned int minV3Index, unsigned int maxV3Index, unsigned int const recursiveDepth);
+
+	MeshTree terminateMeshTree(unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
+
+
+	unsigned int m_maxRecursiveDepth = 100;
+
+
+	//NOTE: RETURN -1 on no index found
+	int searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
+	int searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
+	int searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
 
 };

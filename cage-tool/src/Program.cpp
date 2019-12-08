@@ -8,6 +8,7 @@
 glm::vec3 const Program::s_CAGE_UNSELECTED_COLOUR = glm::vec3(0.0f, 0.0f, 0.0f);
 glm::vec3 const Program::s_CAGE_SELECTED_COLOUR = glm::vec3(1.0f, 1.0f, 0.0f);
 unsigned int const Program::s_MAX_RECURSIVE_DEPTH = 10;
+//TODO: NOTE that current obb axes being used is initial OBB so the voxelization isnt that used
 
 Program::Program() {
 
@@ -455,7 +456,7 @@ void Program::drawUI() {
 			if (ImGui::Button("CLEAR CAGE")) clearCage();
 		} else {
 			if (nullptr != m_model) {
-				if (ImGui::Button("GENERATE CAGE")) generateCage();
+				if (ImGui::Button("GENERATE CAGE")) generateCage2();
 			}
 			
 			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
@@ -926,6 +927,11 @@ std::vector<glm::vec3> Program::generatePointSetP() {
 	glm::vec3 eigenV2 = glm::vec3(eigenVectors(0, 1), eigenVectors(1, 1), eigenVectors(2, 1));
 	glm::vec3 eigenV3 = glm::vec3(eigenVectors(0, 2), eigenVectors(1, 2), eigenVectors(2, 2));
 
+	//TODO: SORT THESE!!!
+	//m_eigenV1 = eigenV1;
+	//m_eigenV2 = eigenV2;
+	//m_eigenV3 = eigenV3;
+
 	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
 	float minScalarAlongV1 = std::numeric_limits<float>::max();
 	float maxScalarAlongV1 = std::numeric_limits<float>::lowest();
@@ -1364,6 +1370,25 @@ std::shared_ptr<MeshObject> Program::generateOBBs(std::vector<glm::vec3> &points
 	glm::vec3 eigenV1 = glm::vec3(eigenVectors(0, 0), eigenVectors(1, 0), eigenVectors(2, 0));
 	glm::vec3 eigenV2 = glm::vec3(eigenVectors(0, 1), eigenVectors(1, 1), eigenVectors(2, 1));
 	glm::vec3 eigenV3 = glm::vec3(eigenVectors(0, 2), eigenVectors(1, 2), eigenVectors(2, 2));
+
+	
+
+	//TEMP TESTING THIS
+	//eigenV1 = m_eigenV1;
+	//eigenV2 = m_eigenV2;
+	//eigenV3 = m_eigenV3;
+
+	if (0 == recursiveDepth) {
+		m_eigenV1 = eigenV1;
+		m_eigenV2 = eigenV2;
+		m_eigenV3 = eigenV3;
+	}
+	else {
+		eigenV1 = m_eigenV1;
+		eigenV2 = m_eigenV2;
+		eigenV3 = m_eigenV3;
+	}
+
 	
 	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
 	float minScalarAlongV1 = std::numeric_limits<float>::max();
@@ -1446,6 +1471,8 @@ std::shared_ptr<MeshObject> Program::generateOBBs(std::vector<glm::vec3> &points
 	} else {
 
 	}
+
+	
 
 
 	// 5. compute a cubic voxel size (side length)...
@@ -3001,3 +3028,1507 @@ std::shared_ptr<MeshObject> Program::generateOBBs(std::vector<glm::vec3> &points
 
 
 
+
+// SIMILAR TO IMPROVED OBB METHOD (XIAN, LIN, GAO)...
+// reference: http://www.cad.zju.edu.cn/home/hwlin/pdf_files/Automatic-cage-generation-by-improved-OBBs-for-mesh-deformation.pdf
+// reference: http://www-home.htwg-konstanz.de/~umlauf/Papers/cagesurvSinCom.pdf
+// reference: https://hewjunwei.wordpress.com/2013/01/26/obb-generation-via-principal-component-analysis/
+void Program::generateCage2() {
+	if (nullptr == m_model) return;
+
+	std::shared_ptr<MeshObject> out_obb = std::make_shared<MeshObject>();
+	std::shared_ptr<MeshObject> out_pointSetP = std::make_shared<MeshObject>();
+	std::vector<glm::vec3> pointSetP = generatePointSetP2(*out_obb, *out_pointSetP);
+	std::vector<std::vector<std::vector<unsigned int>>> obbSpace = generateOBBSpace(pointSetP);
+	MeshTree const meshTree = generateMeshTree(obbSpace, 0, obbSpace.at(0).at(0).size() - 1, 0, obbSpace.at(0).size() - 1, 0, obbSpace.size() - 1, 0);
+	
+	//TODO: construct cage out of meshTree for rendering (e.g. add colours/picking colours, flags, etc.)
+
+	// clear old cage if any...
+	clearCage();
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	// RENDER ACTUAL CAGE...
+
+//
+	m_cage = std::make_shared<MeshObject>();
+	
+	//RECALL: .x for V1, .y for V2, .z for V3
+	for (glm::vec3 const& p : meshTree.m_vertexCoords) {
+		glm::vec3 const p_cage = (p.x * m_voxelSize + m_expandedMinScalarAlongV1) * m_eigenV1 + (p.y * m_voxelSize + m_expandedMinScalarAlongV2) * m_eigenV2 + (p.z * m_voxelSize + m_expandedMinScalarAlongV3) * m_eigenV3;
+		m_cage->drawVerts.push_back(p_cage);
+	}
+	m_cage->drawFaces = meshTree.m_faceIndices;
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
+	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
+//
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	// RENDER INITIAL OBB...
+
+/*
+
+	m_cage = out_obb;
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
+
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
+*/
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	// RENDER POINT SET P...
+
+/*
+	m_cage = out_pointSetP;
+
+	// init vert colours (uniform light grey for now)
+	for (unsigned int i = 0; i < m_cage->drawVerts.size(); ++i) {
+		m_cage->colours.push_back(glm::vec3(0.8f, 0.8f, 0.8f));
+	}
+
+	// set cage black and also set picking colours...
+	for (unsigned int i = 0; i < m_cage->colours.size(); ++i) {
+		// render colour...
+		m_cage->colours.at(i) = s_CAGE_UNSELECTED_COLOUR;
+
+		// reference: http://www.opengl-tutorial.org/miscellaneous/clicking-on-objects/picking-with-an-opengl-hack/
+		// reference: https://github.com/opengl-tutorials/ogl/blob/master/misc05_picking/misc05_picking_slow_easy.cpp
+		// picking colour...
+		//NOTE: this assumes that this cage will be the only object with picking colours (these colours must be unique)
+		unsigned int const r = (i & 0x000000FF) >> 0;
+		unsigned int const g = (i & 0x0000FF00) >> 8;
+		unsigned int const b = (i & 0x00FF0000) >> 16;
+		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+	}
+	m_cage->m_polygonMode = PolygonMode::POINT;
+
+	meshObjects.push_back(m_cage);
+	renderEngine->assignBuffers(*m_cage);
+*/
+
+	///////////////////////////////////////////////////////////////////////////////////////
+}
+
+
+
+std::vector<glm::vec3> Program::generatePointSetP2(MeshObject &out_obb, MeshObject &out_pointSetP) {
+	if (nullptr == m_model) return std::vector<glm::vec3>();
+
+	// 1. extract set of model verts (eliminate duplicates)...
+	std::vector<glm::vec3> pointSetM;
+	for (glm::vec3 const& p : m_model->drawVerts) {
+		auto it = std::find(pointSetM.begin(), pointSetM.end(), p);
+		if (pointSetM.end() == it) { // new unique point
+			pointSetM.push_back(p);
+		}
+	}
+
+	// 2. generate initial OBB O of pointSetM using Principal Component Analysis...
+
+	// low covariance of 2 values means more independent (less correlated)
+	// covariance(x,x) = variance(x)
+	// covariance matrix A generalizes the concept of variance in multiple dimensions
+	// we want to diagonalize the covariance matrix to make signals strong (big diagonal entries) and distortions weak (low (in this case 0) off-diagonal entries)
+	// A is REAL and SYMMETRIC ===> guaranteed to have 3 eigenvectors in the similarity transformation (change of basis matrix) when we diagonalize A.
+	// THE 3 EIGENVECTORS OF COVARIANCE MATRIX WILL MAKE UP ORIENTATION OF OBB
+	// large eigenvalues mean large variance, thus align OBB along eigenvector corresponding to largest eigenvalue
+
+	//TODO: could improve this algo by working on the convex hull points only (but it might not be worth it)
+	//TODO: could improve this program by using a more exact OBB method (slower) for low vert count models.
+
+	// reference: https://stackoverflow.com/questions/6189229/creating-oobb-from-points
+	// 3. compute centroid mu of points...
+	glm::vec3 mu = glm::vec3(0.0f, 0.0f, 0.0f);
+	for (glm::vec3 const& p : pointSetM) {
+		mu += p;
+	}
+	mu /= pointSetM.size();
+
+	// 4. compute covariance matrix...
+	glm::mat3 covarianceMatrix = glm::mat3(0.0f);
+	for (glm::vec3 const& p : pointSetM) {
+		glm::vec3 const dev = p - mu;
+		glm::mat3 const covMat_i = glm::outerProduct(dev, dev); // dev * (dev)^T
+		covarianceMatrix += covMat_i;
+	}
+	//NOTE: this matrix should be REAL and SYMMETRIC
+
+	// 5. get sorted eigenvalues (ascending) + corresponding eigenvectors...
+
+	// convert matrix form (glm -> eigen) to work with eigensolver...
+	Eigen::Matrix3f covMatEigen;
+	for (unsigned int i = 0; i < covarianceMatrix.length(); ++i) { // loop over columns
+		for (unsigned int j = 0; j < covarianceMatrix[i].length(); ++j) { // loop over rows
+			covMatEigen(j, i) = covarianceMatrix[i][j]; //NOTE: eigen(row, col) vs glm(col, row)
+		}
+	}
+
+	// reference: https://stackoverflow.com/questions/50458712/c-find-eigenvalues-and-eigenvectors-of-matrix
+	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> eigenSolver;
+	eigenSolver.compute(covMatEigen);
+	Eigen::Vector3f eigenValues = eigenSolver.eigenvalues(); //NOTE: eigenvalues come sorted in ascending order
+	Eigen::Matrix3f eigenVectors = eigenSolver.eigenvectors(); //NOTE: eigenvectors come sorted corresponding to returned eigenvalues and are normalized. This returned matrix also corresponds to P in the diagonalization formula A = P*D*P^-1. Here A =:= covariance matrix
+
+	// convert eigenvector forms (eigen -> glm)...
+	glm::vec3 eigenV1 = glm::vec3(eigenVectors(0, 0), eigenVectors(1, 0), eigenVectors(2, 0));
+	glm::vec3 eigenV2 = glm::vec3(eigenVectors(0, 1), eigenVectors(1, 1), eigenVectors(2, 1));
+	glm::vec3 eigenV3 = glm::vec3(eigenVectors(0, 2), eigenVectors(1, 2), eigenVectors(2, 2));
+
+	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
+	float minScalarAlongV1 = std::numeric_limits<float>::max();
+	float maxScalarAlongV1 = std::numeric_limits<float>::lowest();
+	float minScalarAlongV2 = std::numeric_limits<float>::max();
+	float maxScalarAlongV2 = std::numeric_limits<float>::lowest();
+	float minScalarAlongV3 = std::numeric_limits<float>::max();
+	float maxScalarAlongV3 = std::numeric_limits<float>::lowest();
+	for (glm::vec3 const& p : pointSetM) {
+		// project along eigenV1 axis...
+		float const projScalarV1 = glm::dot(p, eigenV1) / glm::length2(eigenV1);
+		if (projScalarV1 < minScalarAlongV1) minScalarAlongV1 = projScalarV1;
+		if (projScalarV1 > maxScalarAlongV1) maxScalarAlongV1 = projScalarV1;
+
+		// project along eigenV2 axis...
+		float const projScalarV2 = glm::dot(p, eigenV2) / glm::length2(eigenV2);
+		if (projScalarV2 < minScalarAlongV2) minScalarAlongV2 = projScalarV2;
+		if (projScalarV2 > maxScalarAlongV2) maxScalarAlongV2 = projScalarV2;
+
+		// project along eigenV3 axis...
+		float const projScalarV3 = glm::dot(p, eigenV3) / glm::length2(eigenV3);
+		if (projScalarV3 < minScalarAlongV3) minScalarAlongV3 = projScalarV3;
+		if (projScalarV3 > maxScalarAlongV3) maxScalarAlongV3 = projScalarV3;
+	}
+
+	// 5.5 sort basis vectors (v3 >= v2 >= V1)...
+	std::vector<SortableAxis> axes = { SortableAxis(eigenV1, minScalarAlongV1, maxScalarAlongV1), SortableAxis(eigenV2, minScalarAlongV2, maxScalarAlongV2), SortableAxis(eigenV3, minScalarAlongV3, maxScalarAlongV3) };
+	std::sort(axes.begin(), axes.end());
+
+	eigenV1 = axes.at(0).m_axis;
+	eigenV2 = axes.at(1).m_axis;
+	eigenV3 = axes.at(2).m_axis;
+
+	minScalarAlongV1 = axes.at(0).m_min;
+	minScalarAlongV2 = axes.at(1).m_min;
+	minScalarAlongV3 = axes.at(2).m_min;
+
+	maxScalarAlongV1 = axes.at(0).m_max;
+	maxScalarAlongV2 = axes.at(1).m_max;
+	maxScalarAlongV3 = axes.at(2).m_max;
+
+	// 6. compute a cubic voxel size (side length)...
+	float const avgExtent = ((maxScalarAlongV1 - minScalarAlongV1) + (maxScalarAlongV2 - minScalarAlongV2) + (maxScalarAlongV3 - minScalarAlongV3)) / 3;
+	float const voxelSize = avgExtent / 100; // NOTE: increase denominator in order to increase voxel resolution (voxel count) - NOTE: that scaling the denom causes a cubic scale to the voxel count (so RAM explodes pretty quickly)
+	m_voxelSize = voxelSize;
+
+	// 7. voxelize our OBB into a slightly larger 3D grid of cubes...
+	// this expanded voxelized OBB will have new min/max scalars along each of the 3 basis axes denoting boundaries
+	//NOTE: both the OBB and expanded voxelized-OBB will still have same centroid
+
+	float const midScalarAlongV1 = (minScalarAlongV1 + maxScalarAlongV1) / 2;
+	float const midScalarAlongV2 = (minScalarAlongV2 + maxScalarAlongV2) / 2;
+	float const midScalarAlongV3 = (minScalarAlongV3 + maxScalarAlongV3) / 2;
+
+	//NOTE: adding 1 voxel to each side to handle edge cases
+	unsigned int const voxelCountAlongHalfV1 = glm::ceil((maxScalarAlongV1 - midScalarAlongV1) / voxelSize) + 1;
+	unsigned int const voxelCountAlongHalfV2 = glm::ceil((maxScalarAlongV2 - midScalarAlongV2) / voxelSize) + 1;
+	unsigned int const voxelCountAlongHalfV3 = glm::ceil((maxScalarAlongV3 - midScalarAlongV3) / voxelSize) + 1;
+
+	float const expandedHalfExtentV1 = voxelCountAlongHalfV1 * voxelSize;
+	float const expandedHalfExtentV2 = voxelCountAlongHalfV2 * voxelSize;
+	float const expandedHalfExtentV3 = voxelCountAlongHalfV3 * voxelSize;
+
+	float const expandedMinScalarAlongV1 = midScalarAlongV1 - expandedHalfExtentV1;
+	float const expandedMaxScalarAlongV1 = midScalarAlongV1 + expandedHalfExtentV1;
+	float const expandedMinScalarAlongV2 = midScalarAlongV2 - expandedHalfExtentV2;
+	float const expandedMaxScalarAlongV2 = midScalarAlongV2 + expandedHalfExtentV2;
+	float const expandedMinScalarAlongV3 = midScalarAlongV3 - expandedHalfExtentV3;
+	float const expandedMaxScalarAlongV3 = midScalarAlongV3 + expandedHalfExtentV3;
+
+	// coloured voxel array (BLACK =:= OUTER (default), CYAN =:= FEATURE, MAGENTA =:= INNER)
+	// those colours can be assigned later if we want to render the voxels, but for now treat BLACK == 0, CYAN == 1, MAGENTA = 2
+
+	unsigned int const OUTER_BLACK = 0;
+	unsigned int const FEATURE_CYAN = 1;
+	unsigned int const INNER_MAGENTA = 2;
+
+	unsigned int const nV1 = 2 * voxelCountAlongHalfV1;
+	unsigned int const nV2 = 2 * voxelCountAlongHalfV2;
+	unsigned int const nV3 = 2 * voxelCountAlongHalfV3;
+
+	//TODO: fix the inner voxel issue
+	// either 0, 1, or 2
+	std::vector<std::vector<std::vector<unsigned int>>> voxelClasses(nV3, std::vector<std::vector<unsigned int>>(nV2, std::vector<unsigned int>(nV1, OUTER_BLACK)));
+	//NOTE: below, this 3D array maps voxel [V3][V2][V1] with either glm::vec3(0.0f, 0.0f, 0.0f) or another non-zero vec3.
+	//~~~~~ this vec3 will be non-zero if this voxel is found to be a FEATURE VOXEL (meaning it has intersected at least 1 triangle face of model).
+	//~~~~~ if this feature voxel is found to intersect multiple triangle faces, then this vec3 is taken as the trivial average of the face normals (normalized sum of them)
+	//TODO: there is a known issue with some voxels being wrongly marker INNER, this is likely due to the wrong normal being considered since we just take the average right now
+	//~~~~~ this can be fixed/improved by instead using the face normal with intersection point with smallest projected scalar along eigenV1 (scan direction)
+	std::vector<std::vector<std::vector<glm::vec3>>> voxelIntersectedFaceAvgNormals(nV3, std::vector<std::vector<glm::vec3>>(nV2, std::vector<glm::vec3>(nV1, glm::vec3(0.0f, 0.0f, 0.0f))));
+
+	// 8. CLASSIFY FEATURE VOXELS...
+
+	// per triangle...
+	for (unsigned int f = 0; f < m_model->drawFaces.size(); f += 3) {
+		// get 3 triangle verts in x,y,z coordinate frame...
+		glm::vec3 const& tV1xyz = m_model->drawVerts.at(m_model->drawFaces.at(f));
+		glm::vec3 const& tV2xyz = m_model->drawVerts.at(m_model->drawFaces.at(f + 1));
+		glm::vec3 const& tV3xyz = m_model->drawVerts.at(m_model->drawFaces.at(f + 2));
+
+		// project these 3 points into OBB frame (measured by scalars along each of the 3 basis eigenvectors)...
+		// .x will be eigenV1 scalar, .y is V2, .z is V3
+		glm::vec3 const tV1 = glm::vec3(glm::dot(tV1xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV1xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV1xyz, eigenV3) / glm::length2(eigenV3));
+		glm::vec3 const tV2 = glm::vec3(glm::dot(tV2xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV2xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV2xyz, eigenV3) / glm::length2(eigenV3));
+		glm::vec3 const tV3 = glm::vec3(glm::dot(tV3xyz, eigenV1) / glm::length2(eigenV1), glm::dot(tV3xyz, eigenV2) / glm::length2(eigenV2), glm::dot(tV3xyz, eigenV3) / glm::length2(eigenV3));
+
+		// DISCRETIZE TRIANGLE FACE BY BARYCENTRIC COORDS...
+
+		//NOTE: this will be susceptible to duplicates
+		//TODO: make sure bounds actually are [0, 1] exactly (rather than stopping short before 1) - should be done now
+
+		// NOTE: all these points will be in OBB space
+		std::vector<glm::vec3> discreteTrianglePts;
+		discreteTrianglePts.push_back(tV1);
+		discreteTrianglePts.push_back(tV2);
+		discreteTrianglePts.push_back(tV3);
+
+		float const du = voxelSize / (glm::distance(tV1, glm::proj(tV1, tV3 - tV2)));
+		float const dv = voxelSize / (glm::distance(tV2, glm::proj(tV2, tV3 - tV1)));
+
+		for (float u = 0.0f; u <= 1.0f; u += glm::min<float>(du, 1.0f - u > 0.0f ? 1.0f - u : du)) {
+			for (float v = 0.0f; v <= 1.0f - u; v += glm::min<float>(dv, 1.0f - u - v > 0.0f ? 1.0f - u - v : dv)) {
+				float const w = 1.0f - u - v;
+				discreteTrianglePts.push_back(u * tV1 + v * tV2 + w * tV3);
+			}
+		}
+
+		// NOW FOR EVERY TRIANGLE POINT...
+		// check voxel its in (by mapping formula) and mark FEATURE VOXEL, add to list of considered voxels for this tri-face and if not already considered add this face normal as contribution
+		// inverse mapping formula (position to voxel index)
+		// i on V3, j on V2, k on V1
+		// storing already considered (by this face) feature voxels as vec3(i,j,k)
+
+		std::vector<glm::vec3> consideredVoxels;
+		for (glm::vec3 const& tPt : discreteTrianglePts) {
+			// inverse map back to indices i,j,k (single voxel)...
+
+			unsigned int const indexI = glm::floor((tPt.z - expandedMinScalarAlongV3) / voxelSize);
+			unsigned int const indexJ = glm::floor((tPt.y - expandedMinScalarAlongV2) / voxelSize);
+			unsigned int const indexK = glm::floor((tPt.x - expandedMinScalarAlongV1) / voxelSize);
+
+			glm::vec3 const intersectedVoxel = glm::vec3(indexI, indexJ, indexK);
+			auto it = std::find(consideredVoxels.begin(), consideredVoxels.end(), intersectedVoxel);
+			if (consideredVoxels.end() == it) { // new considered voxel
+
+				// mark voxel as FEATURE...
+				voxelClasses.at(indexI).at(indexJ).at(indexK) = FEATURE_CYAN;
+
+				// contribute this face's normal to voxel
+				voxelIntersectedFaceAvgNormals.at(indexI).at(indexJ).at(indexK) += m_model->faceNormals.at(f / 3);
+
+				// mark voxel as considered by this tri-face
+				consideredVoxels.push_back(intersectedVoxel);
+			}
+		}
+	}
+
+	// 8.5. foreach voxel, normalize (avg) the contributed face normals
+
+	// per voxel...
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				// if voxel was marked as FEATURE...
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					//TODO: make sure the tri-face normals weren't symbolic 0 vector due to being really small???
+					voxelIntersectedFaceAvgNormals.at(i).at(j).at(k) = glm::normalize(voxelIntersectedFaceAvgNormals.at(i).at(j).at(k));
+				}
+			}
+		}
+	}
+
+	// 9. CLASSIFY INNER VOXELS (SCAN-ALGORITHM)...
+	// reference: http://blog.wolfire.com/2009/11/Triangle-mesh-voxelization
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			std::vector<glm::vec3> voxelStore;
+
+			// find start/end feature voxels in this line...
+			// voxels outside of these bounds have to remain outer voxels
+			bool foundMin = false;
+			unsigned int minK = 0;
+			unsigned int maxK = 0;
+
+			for (unsigned int k = 0; k < nV1; ++k) {
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					maxK = k;
+					if (!foundMin) {
+						minK = k;
+						foundMin = true;
+					}
+				}
+			}
+
+			for (unsigned int k = minK; k <= maxK; ++k) {
+				// DIRECTION OF SCAN VECTOR IS eigenV1 basis vector
+
+				if (FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					if (glm::dot(voxelIntersectedFaceAvgNormals.at(i).at(j).at(k), eigenV1) > 0.0f) {
+
+						// mark all stored voxels as inner...
+						for (glm::vec3 const& voxel : voxelStore) {
+							voxelClasses.at(voxel.x).at(voxel.y).at(voxel.z) = INNER_MAGENTA;
+						}
+					}
+					voxelStore.clear();
+				}
+				else {
+					voxelStore.push_back(glm::vec3(i, j, k));
+				}
+			}
+		}
+	}
+
+	// 10. GENERATE THE POINT SET P = {MODEL VERTS} + {INNER VOXEL BARYCENTRES} + {FEATURE VOXEL BARYCENTRES}...
+	//NOTE: i'm including feature voxels as well (differ from paper) since inner voxels may not exist for skinny parts of model (e.g. long skinny triangle faces)
+
+	std::vector<glm::vec3> pointSetP = pointSetM; // copy all unique model verts into our new set
+
+	// add INNER/FEATURE VOXEL BARYCENTRES...
+	// per voxel...
+	for (unsigned int i = 0; i < nV3; ++i) {
+		for (unsigned int j = 0; j < nV2; ++j) {
+			for (unsigned int k = 0; k < nV1; ++k) {
+				// if voxel was marked as INNER/FEATURE...
+				if (INNER_MAGENTA == voxelClasses.at(i).at(j).at(k) || FEATURE_CYAN == voxelClasses.at(i).at(j).at(k)) {
+					float const v1Coord = (k + 0.5) * voxelSize + expandedMinScalarAlongV1;
+					float const v2Coord = (j + 0.5) * voxelSize + expandedMinScalarAlongV2;
+					float const v3Coord = (i + 0.5) * voxelSize + expandedMinScalarAlongV3;
+					glm::vec3 const barycentre = v1Coord * eigenV1 + v2Coord * eigenV2 + v3Coord * eigenV3;
+					pointSetP.push_back(barycentre);
+				}
+			}
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	out_obb = MeshObject();
+
+	out_obb.drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(minScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(minScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(maxScalarAlongV1 * eigenV1 + minScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + minScalarAlongV3 * eigenV3);
+	out_obb.drawVerts.push_back(maxScalarAlongV1 * eigenV1 + maxScalarAlongV2 * eigenV2 + maxScalarAlongV3 * eigenV3);
+
+	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+	// FROM 0 (000)
+
+	out_obb.drawFaces.push_back(0);
+	out_obb.drawFaces.push_back(2);
+	out_obb.drawFaces.push_back(6);
+
+	out_obb.drawFaces.push_back(0);
+	out_obb.drawFaces.push_back(6);
+	out_obb.drawFaces.push_back(4);
+
+
+	out_obb.drawFaces.push_back(0);
+	out_obb.drawFaces.push_back(1);
+	out_obb.drawFaces.push_back(3);
+
+	out_obb.drawFaces.push_back(0);
+	out_obb.drawFaces.push_back(3);
+	out_obb.drawFaces.push_back(2);
+
+
+	out_obb.drawFaces.push_back(0);
+	out_obb.drawFaces.push_back(4);
+	out_obb.drawFaces.push_back(5);
+
+	out_obb.drawFaces.push_back(0);
+	out_obb.drawFaces.push_back(5);
+	out_obb.drawFaces.push_back(1);
+
+	// FROM 7 (111)
+
+	out_obb.drawFaces.push_back(7);
+	out_obb.drawFaces.push_back(3);
+	out_obb.drawFaces.push_back(1);
+
+	out_obb.drawFaces.push_back(7);
+	out_obb.drawFaces.push_back(1);
+	out_obb.drawFaces.push_back(5);
+
+
+	out_obb.drawFaces.push_back(7);
+	out_obb.drawFaces.push_back(5);
+	out_obb.drawFaces.push_back(4);
+
+	out_obb.drawFaces.push_back(7);
+	out_obb.drawFaces.push_back(4);
+	out_obb.drawFaces.push_back(6);
+
+
+	out_obb.drawFaces.push_back(7);
+	out_obb.drawFaces.push_back(6);
+	out_obb.drawFaces.push_back(2);
+
+	out_obb.drawFaces.push_back(7);
+	out_obb.drawFaces.push_back(2);
+	out_obb.drawFaces.push_back(3);
+	///////////////////////////////////////////////////////////////////////////////////////
+
+	///////////////////////////////////////////////////////////////////////////////////////
+	out_pointSetP = MeshObject();
+
+	out_pointSetP.drawVerts = pointSetP;
+
+	// init faces as triangles that are actually points!!!
+	for (unsigned int i = 0; i < out_pointSetP.drawVerts.size(); ++i) {
+		out_pointSetP.drawFaces.push_back(i);
+		out_pointSetP.drawFaces.push_back(i);
+		out_pointSetP.drawFaces.push_back(i);
+	}
+	///////////////////////////////////////////////////////////////////////////////////////
+
+	return pointSetP;
+}
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+std::vector<std::vector<std::vector<unsigned int>>> Program::generateOBBSpace(std::vector<glm::vec3> const& pointSetP) {
+	if (pointSetP.empty()) return std::vector<std::vector<std::vector<unsigned int>>>();
+
+	glm::vec3 eigenV1 = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 eigenV2 = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 eigenV3 = glm::vec3(0.0f, 0.0f, 0.0f);
+
+	// recompute OBB, get 3 new axes that will be used for everything in the future...
+	// 1. generate OBB of point set P using Principal Component Analysis...
+
+	// low covariance of 2 values means more independent (less correlated)
+	// covariance(x,x) = variance(x)
+	// covariance matrix A generalizes the concept of variance in multiple dimensions
+	// we want to diagonalize the covariance matrix to make signals strong (big diagonal entries) and distortions weak (low (in this case 0) off-diagonal entries)
+	// A is REAL and SYMMETRIC ===> guaranteed to have 3 eigenvectors in the similarity transformation (change of basis matrix) when we diagonalize A.
+	// THE 3 EIGENVECTORS OF COVARIANCE MATRIX WILL MAKE UP ORIENTATION OF OBB
+	// large eigenvalues mean large variance, thus align OBB along eigenvector corresponding to largest eigenvalue
+
+	//TODO: could improve this algo by working on the convex hull points only (but it might not be worth it)
+	//TODO: could improve this program by using a more exact OBB method (slower) for low vert count models.
+
+	// reference: https://stackoverflow.com/questions/6189229/creating-oobb-from-points
+	// 2. compute centroid mu of points...
+	glm::vec3 mu = glm::vec3(0.0f, 0.0f, 0.0f);
+	for (glm::vec3 const& p : pointSetP) {
+		mu += p;
+	}
+	mu /= pointSetP.size();
+
+	// 3. compute covariance matrix...
+	glm::mat3 covarianceMatrix = glm::mat3(0.0f);
+	for (glm::vec3 const& p : pointSetP) {
+		glm::vec3 const dev = p - mu;
+		glm::mat3 const covMat_i = glm::outerProduct(dev, dev); // dev * (dev)^T
+		covarianceMatrix += covMat_i;
+	}
+	//NOTE: this matrix should be REAL and SYMMETRIC
+
+	// 4. get sorted eigenvalues (ascending) + corresponding eigenvectors...
+
+	// convert matrix form (glm -> eigen) to work with eigensolver...
+	Eigen::Matrix3f covMatEigen;
+	for (unsigned int i = 0; i < covarianceMatrix.length(); ++i) { // loop over columns
+		for (unsigned int j = 0; j < covarianceMatrix[i].length(); ++j) { // loop over rows
+			covMatEigen(j, i) = covarianceMatrix[i][j]; //NOTE: eigen(row, col) vs glm(col, row)
+		}
+	}
+
+	// reference: https://stackoverflow.com/questions/50458712/c-find-eigenvalues-and-eigenvectors-of-matrix
+	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> eigenSolver;
+	eigenSolver.compute(covMatEigen);
+	Eigen::Vector3f eigenValues = eigenSolver.eigenvalues(); //NOTE: eigenvalues come sorted in ascending order
+	Eigen::Matrix3f eigenVectors = eigenSolver.eigenvectors(); //NOTE: eigenvectors come sorted corresponding to returned eigenvalues and are normalized. This returned matrix also corresponds to P in the diagonalization formula A = P*D*P^-1. Here A =:= covariance matrix
+
+	// convert eigenvector forms (eigen -> glm)...
+	eigenV1 = glm::vec3(eigenVectors(0, 0), eigenVectors(1, 0), eigenVectors(2, 0));
+	eigenV2 = glm::vec3(eigenVectors(0, 1), eigenVectors(1, 1), eigenVectors(2, 1));
+	eigenV3 = glm::vec3(eigenVectors(0, 2), eigenVectors(1, 2), eigenVectors(2, 2));
+
+	// find the 8 bounding vertices by finding the min/max coordinates of the projected points along each of the 3 mutually orthonormal eigenvectors that form our basis...
+	float minScalarAlongV1 = std::numeric_limits<float>::max();
+	float maxScalarAlongV1 = std::numeric_limits<float>::lowest();
+	float minScalarAlongV2 = std::numeric_limits<float>::max();
+	float maxScalarAlongV2 = std::numeric_limits<float>::lowest();
+	float minScalarAlongV3 = std::numeric_limits<float>::max();
+	float maxScalarAlongV3 = std::numeric_limits<float>::lowest();
+	for (glm::vec3 const& p : pointSetP) {
+		// project along eigenV1 axis...
+		float const projScalarV1 = glm::dot(p, eigenV1) / glm::length2(eigenV1);
+		if (projScalarV1 < minScalarAlongV1) minScalarAlongV1 = projScalarV1;
+		if (projScalarV1 > maxScalarAlongV1) maxScalarAlongV1 = projScalarV1;
+
+		// project along eigenV2 axis...
+		float const projScalarV2 = glm::dot(p, eigenV2) / glm::length2(eigenV2);
+		if (projScalarV2 < minScalarAlongV2) minScalarAlongV2 = projScalarV2;
+		if (projScalarV2 > maxScalarAlongV2) maxScalarAlongV2 = projScalarV2;
+
+		// project along eigenV3 axis...
+		float const projScalarV3 = glm::dot(p, eigenV3) / glm::length2(eigenV3);
+		if (projScalarV3 < minScalarAlongV3) minScalarAlongV3 = projScalarV3;
+		if (projScalarV3 > maxScalarAlongV3) maxScalarAlongV3 = projScalarV3;
+	}
+
+	// 4.5 sort basis vectors (v3 >= v2 >= V1)...
+	std::vector<SortableAxis> axes = { SortableAxis(eigenV1, minScalarAlongV1, maxScalarAlongV1), SortableAxis(eigenV2, minScalarAlongV2, maxScalarAlongV2), SortableAxis(eigenV3, minScalarAlongV3, maxScalarAlongV3) };
+	std::sort(axes.begin(), axes.end());
+
+	eigenV1 = axes.at(0).m_axis;
+	eigenV2 = axes.at(1).m_axis;
+	eigenV3 = axes.at(2).m_axis;
+
+	m_eigenV1 = eigenV1;
+	m_eigenV2 = eigenV2;
+	m_eigenV3 = eigenV3;
+
+	minScalarAlongV1 = axes.at(0).m_min;
+	minScalarAlongV2 = axes.at(1).m_min;
+	minScalarAlongV3 = axes.at(2).m_min;
+
+	maxScalarAlongV1 = axes.at(0).m_max;
+	maxScalarAlongV2 = axes.at(1).m_max;
+	maxScalarAlongV3 = axes.at(2).m_max;
+
+	// 5. use voxel size of initial OBB and the parition length (side length)... 
+	float const voxelSize = m_voxelSize;
+
+	// 6. partition (pseudo-voxelize) our OBB into a slightly larger 3D grid of cubes...
+	// this expanded voxelized OBB will have new min/max scalars along each of the 3 basis axes denoting boundaries
+	//NOTE: both the OBB and expanded voxelized-OBB will still have same centroid
+
+	float const midScalarAlongV1 = (minScalarAlongV1 + maxScalarAlongV1) / 2;
+	float const midScalarAlongV2 = (minScalarAlongV2 + maxScalarAlongV2) / 2;
+	float const midScalarAlongV3 = (minScalarAlongV3 + maxScalarAlongV3) / 2;
+
+	//NOTE: adding 1 voxel to each side to handle edge cases
+	unsigned int const voxelCountAlongHalfV1 = glm::ceil((maxScalarAlongV1 - midScalarAlongV1) / voxelSize) + 1;
+	unsigned int const voxelCountAlongHalfV2 = glm::ceil((maxScalarAlongV2 - midScalarAlongV2) / voxelSize) + 1;
+	unsigned int const voxelCountAlongHalfV3 = glm::ceil((maxScalarAlongV3 - midScalarAlongV3) / voxelSize) + 1;
+
+	float const expandedHalfExtentV1 = voxelCountAlongHalfV1 * voxelSize;
+	float const expandedHalfExtentV2 = voxelCountAlongHalfV2 * voxelSize;
+	float const expandedHalfExtentV3 = voxelCountAlongHalfV3 * voxelSize;
+
+	float const expandedMinScalarAlongV1 = midScalarAlongV1 - expandedHalfExtentV1;
+	float const expandedMaxScalarAlongV1 = midScalarAlongV1 + expandedHalfExtentV1;
+	float const expandedMinScalarAlongV2 = midScalarAlongV2 - expandedHalfExtentV2;
+	float const expandedMaxScalarAlongV2 = midScalarAlongV2 + expandedHalfExtentV2;
+	float const expandedMinScalarAlongV3 = midScalarAlongV3 - expandedHalfExtentV3;
+	float const expandedMaxScalarAlongV3 = midScalarAlongV3 + expandedHalfExtentV3;
+
+	m_expandedMinScalarAlongV1 = expandedMinScalarAlongV1;
+	m_expandedMinScalarAlongV2 = expandedMinScalarAlongV2;
+	m_expandedMinScalarAlongV3 = expandedMinScalarAlongV3;
+
+	unsigned int const nV1 = 2 * voxelCountAlongHalfV1;
+	unsigned int const nV2 = 2 * voxelCountAlongHalfV2;
+	unsigned int const nV3 = 2 * voxelCountAlongHalfV3;
+
+	// 7. compute the area of each voxel in our OBB space, (area = number of points in set P that fall in it)...
+	// -  now insert each point in our point set into a voxel. Voxels can contain many points.
+	std::vector<std::vector<std::vector<unsigned int>>> obbSpace(nV3, std::vector<std::vector<unsigned int>>(nV2, std::vector<unsigned int>(nV1, 0)));
+
+	for (glm::vec3 const& p : pointSetP) {
+		// get voxel index i,j,k for this point coordinate
+		// [V3][V2][V1]
+
+		// project the point into OBB frame (measured by scalars along each of the 3 basis eigenvectors)...
+		// .x will be eigenV1 scalar, .y is V2, .z is V3
+		glm::vec3 const pLocal = glm::vec3(glm::dot(p, eigenV1) / glm::length2(eigenV1), glm::dot(p, eigenV2) / glm::length2(eigenV2), glm::dot(p, eigenV3) / glm::length2(eigenV3));
+
+		// check voxel its in (by mapping formula)
+		// inverse mapping formula (position to voxel index)
+		// i on V3, j on V2, k on V1
+		// inverse map back to indices i,j,k (single voxel)...
+
+		unsigned int const indexI = glm::floor((pLocal.z - expandedMinScalarAlongV3) / voxelSize);
+		unsigned int const indexJ = glm::floor((pLocal.y - expandedMinScalarAlongV2) / voxelSize);
+		unsigned int const indexK = glm::floor((pLocal.x - expandedMinScalarAlongV1) / voxelSize);
+
+		// store point p in this voxel...
+		++obbSpace.at(indexI).at(indexJ).at(indexK);
+	}
+
+	return obbSpace;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+MeshTree Program::terminateMeshTree(unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+	MeshTree meshTree;
+
+	//NOTE: must add 1 to max index to handle ceiling of bounding volume
+	meshTree.m_vertexCoords.push_back(glm::vec3(minV1Index, minV2Index, minV3Index));
+	meshTree.m_vertexCoords.push_back(glm::vec3(minV1Index, minV2Index, maxV3Index+1));
+	meshTree.m_vertexCoords.push_back(glm::vec3(minV1Index, maxV2Index+1, minV3Index));
+	meshTree.m_vertexCoords.push_back(glm::vec3(minV1Index, maxV2Index+1, maxV3Index+1));
+	meshTree.m_vertexCoords.push_back(glm::vec3(maxV1Index+1, minV2Index, minV3Index));
+	meshTree.m_vertexCoords.push_back(glm::vec3(maxV1Index+1, minV2Index, maxV3Index+1));
+	meshTree.m_vertexCoords.push_back(glm::vec3(maxV1Index+1, maxV2Index+1, minV3Index));
+	meshTree.m_vertexCoords.push_back(glm::vec3(maxV1Index+1, maxV2Index+1, maxV3Index+1));
+
+	//TODO: idk the proper order of V1 x V2 x V3 for right-hand-rule, but thats to be figured out
+	//THUS THE WINDING HERE MIGHT BE SCREWED UP!
+
+	// FROM 0 (000)
+
+	meshTree.m_faceIndices.push_back(0);
+	meshTree.m_faceIndices.push_back(2);
+	meshTree.m_faceIndices.push_back(6);
+
+	meshTree.m_faceIndices.push_back(0);
+	meshTree.m_faceIndices.push_back(6);
+	meshTree.m_faceIndices.push_back(4);
+
+
+	meshTree.m_faceIndices.push_back(0);
+	meshTree.m_faceIndices.push_back(1);
+	meshTree.m_faceIndices.push_back(3);
+
+	meshTree.m_faceIndices.push_back(0);
+	meshTree.m_faceIndices.push_back(3);
+	meshTree.m_faceIndices.push_back(2);
+
+
+	meshTree.m_faceIndices.push_back(0);
+	meshTree.m_faceIndices.push_back(4);
+	meshTree.m_faceIndices.push_back(5);
+
+	meshTree.m_faceIndices.push_back(0);
+	meshTree.m_faceIndices.push_back(5);
+	meshTree.m_faceIndices.push_back(1);
+
+	// FROM 7 (111)
+
+	meshTree.m_faceIndices.push_back(7);
+	meshTree.m_faceIndices.push_back(3);
+	meshTree.m_faceIndices.push_back(1);
+
+	meshTree.m_faceIndices.push_back(7);
+	meshTree.m_faceIndices.push_back(1);
+	meshTree.m_faceIndices.push_back(5);
+
+
+	meshTree.m_faceIndices.push_back(7);
+	meshTree.m_faceIndices.push_back(5);
+	meshTree.m_faceIndices.push_back(4);
+
+	meshTree.m_faceIndices.push_back(7);
+	meshTree.m_faceIndices.push_back(4);
+	meshTree.m_faceIndices.push_back(6);
+
+
+	meshTree.m_faceIndices.push_back(7);
+	meshTree.m_faceIndices.push_back(6);
+	meshTree.m_faceIndices.push_back(2);
+
+	meshTree.m_faceIndices.push_back(7);
+	meshTree.m_faceIndices.push_back(2);
+	meshTree.m_faceIndices.push_back(3);
+
+	return meshTree;
+}
+
+
+MeshTree Program::generateMeshTree(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int minV1Index, unsigned int maxV1Index, unsigned int minV2Index, unsigned int maxV2Index, unsigned int minV3Index, unsigned int maxV3Index, unsigned int const recursiveDepth) {
+	// TRIMMING...
+	// we must resize the bounds to mimic an obb's tight bounds
+
+	////////////////////////////////////////////////////////////////////////////////////////
+
+	// check for trimming over V1...
+	std::vector<unsigned int> fx1((maxV1Index - minV1Index) + 1, 0);
+	for (unsigned int k = minV1Index; k <= maxV1Index; ++k) {
+		unsigned int area = 0;
+		for (unsigned int j = minV2Index; j <= maxV2Index; ++j) {
+			for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+				area += obbSpace.at(i).at(j).at(k);
+			}
+		}
+		fx1.at(k - minV1Index) = area;
+	}
+
+	// min bound...
+	for (unsigned int i = 0; i < fx1.size(); ++i) {
+		if (fx1.at(i) > 0) {
+			minV1Index += i;
+			break;
+		}
+	}
+	
+	// max bound...
+	for (unsigned int i = fx1.size() - 1; i >= 0; --i) {
+		if (fx1.at(i) > 0) {
+			maxV1Index -= ((fx1.size() - 1) - i);
+			break;
+		}
+	}
+
+	////////////////////////////////////////////////////////////////////////////////////////
+	
+	// check for trimming over V2...
+	std::vector<unsigned int> fx2((maxV2Index - minV2Index) + 1, 0);
+	for (unsigned int j = minV2Index; j <= maxV2Index; ++j) {
+		unsigned int area = 0;
+		for (unsigned int k = minV1Index; k <= maxV1Index; ++k) {
+			for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+				area += obbSpace.at(i).at(j).at(k);
+			}
+		}
+		fx2.at(j - minV2Index) = area;
+	}
+
+	// min bound...
+	for (unsigned int i = 0; i < fx2.size(); ++i) {
+		if (fx2.at(i) > 0) {
+			minV2Index += i;
+			break;
+		}
+	}
+
+	// max bound...
+	for (unsigned int i = fx2.size() - 1; i >= 0; --i) {
+		if (fx2.at(i) > 0) {
+			maxV2Index -= ((fx2.size() - 1) - i);
+			break;
+		}
+	}
+
+	////////////////////////////////////////////////////////////////////////////////////////
+
+	// check for trimming over V3...
+	std::vector<unsigned int> fx3((maxV3Index - minV3Index) + 1, 0);
+	for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+		unsigned int area = 0;
+		for (unsigned int k = minV1Index; k <= maxV1Index; ++k) {
+			for (unsigned int j = minV2Index; j <= maxV2Index; ++j) {
+				area += obbSpace.at(i).at(j).at(k);
+			}
+		}
+		fx3.at(i - minV3Index) = area;
+	}
+
+	// min bound...
+	for (unsigned int i = 0; i < fx3.size(); ++i) {
+		if (fx3.at(i) > 0) {
+			minV3Index += i;
+			break;
+		}
+	}
+
+	// max bound...
+	for (unsigned int i = fx3.size() - 1; i >= 0; --i) {
+		if (fx3.at(i) > 0) {
+			maxV3Index -= ((fx3.size() - 1) - i);
+			break;
+		}
+	}
+
+	////////////////////////////////////////////////////////////////////////////////////////
+	
+	// TERMINATE...
+	if (recursiveDepth >= m_maxRecursiveDepth) {
+		return terminateMeshTree(minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+	}
+
+	//NOTE: obbSpace is indexed [i][j][k] for i in V3, j in V2, k in V1
+
+	// 0. preprocess order of axis-searching (search longest axis first)
+	unsigned int const extentV1 = maxV1Index - minV1Index;
+	unsigned int const extentV2 = maxV2Index - minV2Index;
+	unsigned int const extentV3 = maxV3Index - minV3Index;
+
+	int spliceIndex = -1;
+	unsigned int const SPLIT_V1 = 1;
+	unsigned int const SPLIT_V2 = 2;
+	unsigned int const SPLIT_V3 = 3;
+
+	unsigned int lastAxisSearched = 0;
+
+	if (extentV1 >= extentV2 && extentV1 >= extentV3) {
+		// search V1...
+		spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+		lastAxisSearched = SPLIT_V1;
+
+		if (-1 == spliceIndex) {
+			if (extentV2 >= extentV3) {
+				// search V2...
+				spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				lastAxisSearched = SPLIT_V2;
+
+				if (-1 == spliceIndex) {
+					// search V3...
+					spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					lastAxisSearched = SPLIT_V3;
+				}
+			}
+			else {
+				// search V3...
+				spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				lastAxisSearched = SPLIT_V3;
+
+				if (-1 == spliceIndex) {
+					// search V2...
+					spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					lastAxisSearched = SPLIT_V2;
+				}
+			}
+		}
+	}
+	else if (extentV2 >= extentV1 && extentV2 >= extentV3) {
+		// search V2...
+		spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+		lastAxisSearched = SPLIT_V2;
+
+		if (-1 == spliceIndex) {
+			if (extentV1 >= extentV3) {
+				// search V1...
+				spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				lastAxisSearched = SPLIT_V1;
+
+				if (-1 == spliceIndex) {
+					// search V3...
+					spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					lastAxisSearched = SPLIT_V3;
+				}
+			}
+			else {
+				// search V3...
+				spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				lastAxisSearched = SPLIT_V3;
+
+				if (-1 == spliceIndex) {
+					// search V1...
+					spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					lastAxisSearched = SPLIT_V1;
+				}
+			}
+		}
+	}
+	else {
+		// search V3...
+		spliceIndex = searchForSpliceIndexOverV3(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+		lastAxisSearched = SPLIT_V3;
+
+		if (-1 == spliceIndex) {
+			if (extentV1 >= extentV2) {
+				// search V1...
+				spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				lastAxisSearched = SPLIT_V1;
+
+				if (-1 == spliceIndex) {
+					// search V2...
+					spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					lastAxisSearched = SPLIT_V2;
+				}
+			}
+			else {
+				// search V2...
+				spliceIndex = searchForSpliceIndexOverV2(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+				lastAxisSearched = SPLIT_V2;
+
+				if (-1 == spliceIndex) {
+					// search V1...
+					spliceIndex = searchForSpliceIndexOverV1(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+					lastAxisSearched = SPLIT_V1;
+				}
+			}
+		}
+	}
+
+	// TERMINATE...
+	if (-1 == spliceIndex) {
+		return terminateMeshTree(minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index);
+	}
+
+
+	// SPLICE...
+	if (SPLIT_V1 == lastAxisSearched) {
+		MeshTree lowMeshTree = generateMeshTree(obbSpace, minV1Index, spliceIndex, minV2Index, maxV2Index, minV3Index, maxV3Index, recursiveDepth + 1);
+		MeshTree highMeshTree = generateMeshTree(obbSpace, spliceIndex + 1, maxV1Index, minV2Index, maxV2Index, minV3Index, maxV3Index, recursiveDepth + 1);
+
+		// REMOVE FACES ALONG SPLIT PLANE...
+/*
+		std::vector<unsigned int> tempFacesLow;
+		for (unsigned int f = 0; f < lowMeshTree.m_faceIndices.size(); f += 3) {
+			if ((spliceIndex+1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f)).x && (spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f + 1)).x && (spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f + 2)).x) {
+				// REMOVE FACE (3 indices)...
+				// by not adding them
+			}
+			else {
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f));
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f+1));
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f+2));
+			}
+		}
+		lowMeshTree.m_faceIndices = tempFacesLow;
+
+		std::vector<unsigned int> tempFacesHigh;
+		for (unsigned int f = 0; f < highMeshTree.m_faceIndices.size(); f += 3) {
+			if ((spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f)).x && (spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f + 1)).x && (spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f + 2)).x) {
+				// REMOVE FACE (3 indices)...
+				// by not adding them
+			}
+			else {
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f));
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f + 1));
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f + 2));
+			}
+		}
+		highMeshTree.m_faceIndices = tempFacesHigh;
+*/
+
+		// stitching...
+		MeshTree stitchedTree;
+		stitchedTree.m_vertexCoords = lowMeshTree.m_vertexCoords;
+		stitchedTree.m_vertexCoords.insert(stitchedTree.m_vertexCoords.end(), highMeshTree.m_vertexCoords.begin(), highMeshTree.m_vertexCoords.end());
+
+		stitchedTree.m_faceIndices = lowMeshTree.m_faceIndices;
+		for (unsigned int const& f : highMeshTree.m_faceIndices) {
+			// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+			stitchedTree.m_faceIndices.push_back(f + lowMeshTree.m_vertexCoords.size());
+		}
+
+		return stitchedTree;
+	}
+	else if (SPLIT_V2 == lastAxisSearched) {
+		MeshTree lowMeshTree = generateMeshTree(obbSpace, minV1Index, maxV1Index, minV2Index, spliceIndex, minV3Index, maxV3Index, recursiveDepth + 1);
+		MeshTree highMeshTree = generateMeshTree(obbSpace, minV1Index, maxV1Index, spliceIndex + 1, maxV2Index, minV3Index, maxV3Index, recursiveDepth + 1);
+
+		// REMOVE FACES ALONG SPLIT PLANE...
+/*
+		std::vector<unsigned int> tempFacesLow;
+		for (unsigned int f = 0; f < lowMeshTree.m_faceIndices.size(); f += 3) {
+			if ((spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f)).y && (spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f + 1)).y && (spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f + 2)).y) {
+				// REMOVE FACE (3 indices)...
+				// by not adding them
+			}
+			else {
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f));
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f + 1));
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f + 2));
+			}
+		}
+		lowMeshTree.m_faceIndices = tempFacesLow;
+
+		std::vector<unsigned int> tempFacesHigh;
+		for (unsigned int f = 0; f < highMeshTree.m_faceIndices.size(); f += 3) {
+			if ((spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f)).y && (spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f + 1)).y && (spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f + 2)).y) {
+				// REMOVE FACE (3 indices)...
+				// by not adding them
+			}
+			else {
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f));
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f + 1));
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f + 2));
+			}
+		}
+		highMeshTree.m_faceIndices = tempFacesHigh;
+*/
+
+		// stitching...
+		MeshTree stitchedTree;
+		stitchedTree.m_vertexCoords = lowMeshTree.m_vertexCoords;
+		stitchedTree.m_vertexCoords.insert(stitchedTree.m_vertexCoords.end(), highMeshTree.m_vertexCoords.begin(), highMeshTree.m_vertexCoords.end());
+
+		stitchedTree.m_faceIndices = lowMeshTree.m_faceIndices;
+		for (unsigned int const& f : highMeshTree.m_faceIndices) {
+			// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+			stitchedTree.m_faceIndices.push_back(f + lowMeshTree.m_vertexCoords.size());
+		}
+
+		return stitchedTree;
+	}
+	else if (SPLIT_V3 == lastAxisSearched) {
+		MeshTree lowMeshTree = generateMeshTree(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, minV3Index, spliceIndex, recursiveDepth + 1);
+		MeshTree highMeshTree = generateMeshTree(obbSpace, minV1Index, maxV1Index, minV2Index, maxV2Index, spliceIndex + 1, maxV3Index, recursiveDepth + 1);
+
+		// REMOVE FACES ALONG SPLIT PLANE...
+/*
+		std::vector<unsigned int> tempFacesLow;
+		for (unsigned int f = 0; f < lowMeshTree.m_faceIndices.size(); f += 3) {
+			if ((spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f)).z && (spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f + 1)).z && (spliceIndex + 1) == lowMeshTree.m_vertexCoords.at(lowMeshTree.m_faceIndices.at(f + 2)).z) {
+				// REMOVE FACE (3 indices)...
+				// by not adding them
+			}
+			else {
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f));
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f + 1));
+				tempFacesLow.push_back(lowMeshTree.m_faceIndices.at(f + 2));
+			}
+		}
+		lowMeshTree.m_faceIndices = tempFacesLow;
+
+		std::vector<unsigned int> tempFacesHigh;
+		for (unsigned int f = 0; f < highMeshTree.m_faceIndices.size(); f += 3) {
+			if ((spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f)).z && (spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f + 1)).z && (spliceIndex + 1) == highMeshTree.m_vertexCoords.at(highMeshTree.m_faceIndices.at(f + 2)).z) {
+				// REMOVE FACE (3 indices)...
+				// by not adding them
+			}
+			else {
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f));
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f + 1));
+				tempFacesHigh.push_back(highMeshTree.m_faceIndices.at(f + 2));
+			}
+		}
+		highMeshTree.m_faceIndices = tempFacesHigh;
+*/
+
+		// stitching...
+		MeshTree stitchedTree;
+		stitchedTree.m_vertexCoords = lowMeshTree.m_vertexCoords;
+		stitchedTree.m_vertexCoords.insert(stitchedTree.m_vertexCoords.end(), highMeshTree.m_vertexCoords.begin(), highMeshTree.m_vertexCoords.end());
+
+		stitchedTree.m_faceIndices = lowMeshTree.m_faceIndices;
+		for (unsigned int const& f : highMeshTree.m_faceIndices) {
+			// must update these face indices since the high OBB verts were appended to end of low OBB verts and thus have a shifted index
+			stitchedTree.m_faceIndices.push_back(f + lowMeshTree.m_vertexCoords.size());
+		}
+
+		return stitchedTree;
+	}
+	else { //NOTE: this case should never happen
+		return MeshTree();
+	}
+}
+
+
+//NOTE: RETURN -1 on no index found
+int Program::searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+	
+	unsigned int const nV1 = (maxV1Index - minV1Index) + 1;
+	unsigned int const nV2 = (maxV2Index - minV2Index) + 1;
+	unsigned int const nV3 = (maxV3Index - minV3Index) + 1;
+
+	std::vector<unsigned int> fx(nV1, 0);
+	std::vector<int> classifyFx(nV1, 0);
+
+	for (unsigned int k = minV1Index; k <= maxV1Index; ++k) {
+		unsigned int area = 0;
+		for (unsigned int j = minV2Index; j <= maxV2Index; ++j) {
+			for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+				area += obbSpace.at(i).at(j).at(k);
+			}
+		}
+		fx.at(k - minV1Index) = area;
+	}
+
+	// handle boundaries, if we have something like 1, 1, 1, 1, 5 - then the 4th 1 should be marked as a local minimum
+	// if we have something like 0, 0, 0, 1, 5 - then we trim the 0's and the 1 is NOT marked as a local minimum
+	// if we have something like 0, 0, 0, 1, 1, 1, 1, 5 - then we trim the 0's and get same situation as 1, 1, 1, 1, 5 and treat 4th 1 as a local minimum
+
+	int startIndex = -1;
+	int endIndex = -1;
+
+	// trim any leading 0's...
+	for (unsigned int i = minV1Index; i <= maxV1Index; ++i) {
+		if (fx.at(i - minV1Index) > 0) {
+			startIndex = i - minV1Index;
+			break;
+		}
+	}
+	// trim any trailing 0's...
+	for (unsigned int i = maxV1Index; i >= minV1Index; --i) {
+		if (fx.at(i - minV1Index) > 0) {
+			endIndex = i - minV1Index;
+			break;
+		}
+	}
+
+	// TERMINATE...
+	if (-1 == startIndex || -1 == endIndex || startIndex == endIndex) return -1;
+
+
+	unsigned int localMinCount = 0;
+	unsigned int minArea = std::numeric_limits<unsigned int>::max();
+	unsigned int maxArea = 0;
+
+	// handle boundaries (can't be marked as local minima)...
+	if (fx.at(startIndex) > fx.at(startIndex + 1)) {
+		classifyFx.at(startIndex) = 1;
+		if (fx.at(startIndex) > maxArea) maxArea = fx.at(startIndex);
+		if (fx.at(startIndex) < minArea) minArea = fx.at(startIndex);
+	}
+	if (fx.at(endIndex) > fx.at(endIndex - 1)) {
+		classifyFx.at(endIndex) = 1;
+		if (fx.at(endIndex) > maxArea) maxArea = fx.at(endIndex);
+		if (fx.at(endIndex) < minArea) minArea = fx.at(endIndex);
+	}
+	for (unsigned int i = startIndex + 1; i < endIndex; ++i) {
+		//MAXIMUM...
+		if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) {
+			classifyFx.at(i) = 1;
+			if (fx.at(i) > maxArea) maxArea = fx.at(i);
+			if (fx.at(i) < minArea) minArea = fx.at(i);
+		}
+		else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) {
+			classifyFx.at(i) = 1;
+			if (fx.at(i) > maxArea) maxArea = fx.at(i);
+			if (fx.at(i) < minArea) minArea = fx.at(i);
+		}
+		//MINIMUM...
+		//TODO: pass in this "10" as a user parameter
+		else if (i >= startIndex + 10 && i <= endIndex - 10) {
+			if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+				classifyFx.at(i) = -1;
+				if (fx.at(i) > maxArea) maxArea = fx.at(i);
+				if (fx.at(i) < minArea) minArea = fx.at(i);
+				++localMinCount;
+			}
+			else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+				classifyFx.at(i) = -1;
+				if (fx.at(i) > maxArea) maxArea = fx.at(i);
+				if (fx.at(i) < minArea) minArea = fx.at(i);
+				++localMinCount;
+			}
+		}
+	}
+
+	//TODO: could add in t1/t2 termination conditions here (or just handle t1 here and then handle t2 before even getting here by caller)
+	// TERMINATE...
+	if (0 == localMinCount) return -1;
+
+
+	//TODO: ignore local minima with more than 1 part in cross-section
+	// find the biggest JUMP...
+	int spliceIndex = -1;
+	float maxDYDX = std::numeric_limits<float>::lowest();
+
+	for (unsigned int i = startIndex; i <= endIndex; ++i) {
+		// if at a minimum...
+		if (-1 == classifyFx.at(i)) {
+
+			// find slope between this minimum and every other maximum...
+			for (unsigned int j = startIndex; j <= endIndex; ++j) {
+				if (1 == classifyFx.at(j)) {
+					//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+					int const dx = glm::abs<int>((int)j - (int)i);
+					int const dy = fx.at(j) - fx.at(i);
+					float const dydx = ((float)dy) / dx;
+
+					//TODO: could handle ties differently
+					if (dydx > maxDYDX) {
+						maxDYDX = dydx;
+						spliceIndex = minV1Index + i;
+					}
+				}
+			}
+		}
+	}
+
+	return spliceIndex;
+}
+
+
+//NOTE: RETURN -1 on no index found
+int Program::searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+
+	unsigned int const nV1 = (maxV1Index - minV1Index) + 1;
+	unsigned int const nV2 = (maxV2Index - minV2Index) + 1;
+	unsigned int const nV3 = (maxV3Index - minV3Index) + 1;
+
+	std::vector<unsigned int> fx(nV2, 0);
+	std::vector<int> classifyFx(nV2, 0);
+
+	for (unsigned int j = minV2Index; j <= maxV2Index; ++j) {
+		unsigned int area = 0;
+		for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+			for (unsigned int k = minV1Index; k <= maxV1Index; ++k) {
+				area += obbSpace.at(i).at(j).at(k);
+			}
+		}
+		fx.at(j - minV2Index) = area;
+	}
+
+	// handle boundaries, if we have something like 1, 1, 1, 1, 5 - then the 4th 1 should be marked as a local minimum
+	// if we have something like 0, 0, 0, 1, 5 - then we trim the 0's and the 1 is NOT marked as a local minimum
+	// if we have something like 0, 0, 0, 1, 1, 1, 1, 5 - then we trim the 0's and get same situation as 1, 1, 1, 1, 5 and treat 4th 1 as a local minimum
+
+	int startIndex = -1;
+	int endIndex = -1;
+
+	// trim any leading 0's...
+	for (unsigned int i = minV2Index; i <= maxV2Index; ++i) {
+		if (fx.at(i - minV2Index) > 0) {
+			startIndex = i - minV2Index;
+			break;
+		}
+	}
+	// trim any trailing 0's...
+	for (unsigned int i = maxV2Index; i >= minV2Index; --i) {
+		if (fx.at(i - minV2Index) > 0) {
+			endIndex = i - minV2Index;
+			break;
+		}
+	}
+
+	// TERMINATE...
+	if (-1 == startIndex || -1 == endIndex || startIndex == endIndex) return -1;
+
+
+	unsigned int localMinCount = 0;
+	unsigned int minArea = std::numeric_limits<unsigned int>::max();
+	unsigned int maxArea = 0;
+
+	// handle boundaries (can't be marked as local minima)...
+	if (fx.at(startIndex) > fx.at(startIndex + 1)) {
+		classifyFx.at(startIndex) = 1;
+		if (fx.at(startIndex) > maxArea) maxArea = fx.at(startIndex);
+		if (fx.at(startIndex) < minArea) minArea = fx.at(startIndex);
+	}
+	if (fx.at(endIndex) > fx.at(endIndex - 1)) {
+		classifyFx.at(endIndex) = 1;
+		if (fx.at(endIndex) > maxArea) maxArea = fx.at(endIndex);
+		if (fx.at(endIndex) < minArea) minArea = fx.at(endIndex);
+	}
+	for (unsigned int i = startIndex + 1; i < endIndex; ++i) {
+		//MAXIMUM...
+		if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) {
+			classifyFx.at(i) = 1;
+			if (fx.at(i) > maxArea) maxArea = fx.at(i);
+			if (fx.at(i) < minArea) minArea = fx.at(i);
+		}
+		else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) {
+			classifyFx.at(i) = 1;
+			if (fx.at(i) > maxArea) maxArea = fx.at(i);
+			if (fx.at(i) < minArea) minArea = fx.at(i);
+		}
+		//MINIMUM...
+		//TODO: pass in this "10" as a user parameter
+		else if (i >= startIndex + 10 && i <= endIndex - 10) {
+			if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+				classifyFx.at(i) = -1;
+				if (fx.at(i) > maxArea) maxArea = fx.at(i);
+				if (fx.at(i) < minArea) minArea = fx.at(i);
+				++localMinCount;
+			}
+			else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+				classifyFx.at(i) = -1;
+				if (fx.at(i) > maxArea) maxArea = fx.at(i);
+				if (fx.at(i) < minArea) minArea = fx.at(i);
+				++localMinCount;
+			}
+		}
+	}
+
+	//TODO: could add in t1/t2 termination conditions here (or just handle t1 here and then handle t2 before even getting here by caller)
+	// TERMINATE...
+	if (0 == localMinCount) return -1;
+
+
+	//TODO: ignore local minima with more than 1 part in cross-section
+	// find the biggest JUMP...
+	int spliceIndex = -1;
+	float maxDYDX = std::numeric_limits<float>::lowest();
+
+	for (unsigned int i = startIndex; i <= endIndex; ++i) {
+		// if at a minimum...
+		if (-1 == classifyFx.at(i)) {
+
+			// find slope between this minimum and every other maximum...
+			for (unsigned int j = startIndex; j <= endIndex; ++j) {
+				if (1 == classifyFx.at(j)) {
+					//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+					int const dx = glm::abs<int>((int)j - (int)i);
+					int const dy = fx.at(j) - fx.at(i);
+					float const dydx = ((float)dy) / dx;
+
+					//TODO: could handle ties differently
+					if (dydx > maxDYDX) {
+						maxDYDX = dydx;
+						spliceIndex = minV2Index + i;
+					}
+				}
+			}
+		}
+	}
+
+	return spliceIndex;
+}
+
+
+//NOTE: RETURN -1 on no index found
+int Program::searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index) {
+
+	unsigned int const nV1 = (maxV1Index - minV1Index) + 1;
+	unsigned int const nV2 = (maxV2Index - minV2Index) + 1;
+	unsigned int const nV3 = (maxV3Index - minV3Index) + 1;
+
+	std::vector<unsigned int> fx(nV3, 0);
+	std::vector<int> classifyFx(nV3, 0);
+
+	for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+		unsigned int area = 0;
+		for (unsigned int j = minV2Index; j <= maxV2Index; ++j) {
+			for (unsigned int k = minV1Index; k <= maxV1Index; ++k) {
+				area += obbSpace.at(i).at(j).at(k);
+			}
+		}
+		fx.at(i - minV3Index) = area;
+	}
+
+	// handle boundaries, if we have something like 1, 1, 1, 1, 5 - then the 4th 1 should be marked as a local minimum
+	// if we have something like 0, 0, 0, 1, 5 - then we trim the 0's and the 1 is NOT marked as a local minimum
+	// if we have something like 0, 0, 0, 1, 1, 1, 1, 5 - then we trim the 0's and get same situation as 1, 1, 1, 1, 5 and treat 4th 1 as a local minimum
+
+	int startIndex = -1;
+	int endIndex = -1;
+
+	// trim any leading 0's...
+	for (unsigned int i = minV3Index; i <= maxV3Index; ++i) {
+		if (fx.at(i - minV3Index) > 0) {
+			startIndex = i - minV3Index;
+			break;
+		}
+	}
+	// trim any trailing 0's...
+	for (unsigned int i = maxV3Index; i >= minV3Index; --i) {
+		if (fx.at(i - minV3Index) > 0) {
+			endIndex = i - minV3Index;
+			break;
+		}
+	}
+
+	// TERMINATE...
+	if (-1 == startIndex || -1 == endIndex || startIndex == endIndex) return -1;
+
+
+	unsigned int localMinCount = 0;
+	unsigned int minArea = std::numeric_limits<unsigned int>::max();
+	unsigned int maxArea = 0;
+
+	// handle boundaries (can't be marked as local minima)...
+	if (fx.at(startIndex) > fx.at(startIndex + 1)) {
+		classifyFx.at(startIndex) = 1;
+		if (fx.at(startIndex) > maxArea) maxArea = fx.at(startIndex);
+		if (fx.at(startIndex) < minArea) minArea = fx.at(startIndex);
+	}
+	if (fx.at(endIndex) > fx.at(endIndex - 1)) {
+		classifyFx.at(endIndex) = 1;
+		if (fx.at(endIndex) > maxArea) maxArea = fx.at(endIndex);
+		if (fx.at(endIndex) < minArea) minArea = fx.at(endIndex);
+	}
+	for (unsigned int i = startIndex + 1; i < endIndex; ++i) {
+		//MAXIMUM...
+		if (fx.at(i - 1) < fx.at(i) && fx.at(i) >= fx.at(i + 1)) {
+			classifyFx.at(i) = 1;
+			if (fx.at(i) > maxArea) maxArea = fx.at(i);
+			if (fx.at(i) < minArea) minArea = fx.at(i);
+		}
+		else if (fx.at(i - 1) <= fx.at(i) && fx.at(i) > fx.at(i + 1)) {
+			classifyFx.at(i) = 1;
+			if (fx.at(i) > maxArea) maxArea = fx.at(i);
+			if (fx.at(i) < minArea) minArea = fx.at(i);
+		}
+		//MINIMUM...
+		//TODO: pass in this "10" as a user parameter
+		else if (i >= startIndex + 10 && i <= endIndex - 10) {
+			if (fx.at(i - 1) > fx.at(i) && fx.at(i) <= fx.at(i + 1)) {
+				classifyFx.at(i) = -1;
+				if (fx.at(i) > maxArea) maxArea = fx.at(i);
+				if (fx.at(i) < minArea) minArea = fx.at(i);
+				++localMinCount;
+			}
+			else if (fx.at(i - 1) >= fx.at(i) && fx.at(i) < fx.at(i + 1)) {
+				classifyFx.at(i) = -1;
+				if (fx.at(i) > maxArea) maxArea = fx.at(i);
+				if (fx.at(i) < minArea) minArea = fx.at(i);
+				++localMinCount;
+			}
+		}
+	}
+
+	//TODO: could add in t1/t2 termination conditions here (or just handle t1 here and then handle t2 before even getting here by caller)
+	// TERMINATE...
+	if (0 == localMinCount) return -1;
+
+
+	//TODO: ignore local minima with more than 1 part in cross-section
+	// find the biggest JUMP...
+	int spliceIndex = -1;
+	float maxDYDX = std::numeric_limits<float>::lowest();
+
+	for (unsigned int i = startIndex; i <= endIndex; ++i) {
+		// if at a minimum...
+		if (-1 == classifyFx.at(i)) {
+
+			// find slope between this minimum and every other maximum...
+			for (unsigned int j = startIndex; j <= endIndex; ++j) {
+				if (1 == classifyFx.at(j)) {
+					//NOTE: if the minimum is higher up than maximum, the slope will be negative/0 and thus be too small to even consider
+					int const dx = glm::abs<int>((int)j - (int)i);
+					int const dy = fx.at(j) - fx.at(i);
+					float const dydx = ((float)dy) / dx;
+
+					//TODO: could handle ties differently
+					if (dydx > maxDYDX) {
+						maxDYDX = dydx;
+						spliceIndex = minV3Index + i;
+					}
+				}
+			}
+		}
+	}
+
+	return spliceIndex;
+}
