@@ -456,6 +456,8 @@ void Program::drawUI() {
 			if (ImGui::Button("CLEAR CAGE")) clearCage();
 		} else {
 			if (nullptr != m_model) {
+				ImGui::SliderInt("max recursive depth", reinterpret_cast<int*>(&m_maxRecursiveDepth), 0, 100);
+				m_maxRecursiveDepth = glm::clamp<unsigned int>(m_maxRecursiveDepth, 0, 100);
 				if (ImGui::Button("GENERATE CAGE")) generateCage2();
 			}
 			
