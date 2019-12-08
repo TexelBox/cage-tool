@@ -3103,7 +3103,7 @@ void Program::generateCage2() {
 		m_cage->pickingColours.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
 	}
 	m_cage->m_polygonMode = PolygonMode::LINE; // set wireframe
-	//m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
+	m_cage->m_renderPoints = true; // hack to render the cage as points as well (2nd polygon mode)
 
 	meshObjects.push_back(m_cage);
 	renderEngine->assignBuffers(*m_cage);
