@@ -53,7 +53,6 @@ class Program {
 public:
 	static glm::vec3 const s_CAGE_UNSELECTED_COLOUR;
 	static glm::vec3 const s_CAGE_SELECTED_COLOUR;
-	static unsigned int const s_MAX_RECURSIVE_DEPTH;
 
 	Program();
 	void start();
@@ -103,18 +102,6 @@ private:
 	CoordinateTypes m_coordinateType = CoordinateTypes::MVC; // default is MVC
 
 
-	void generateCage();
-	std::vector<glm::vec3> generatePointSetP();
-	std::shared_ptr<MeshObject> generateOBBs(std::vector<glm::vec3> &points, unsigned int recursiveDepth);
-
-	
-
-
-
-	//int recursiveDepthTest = 0;
-
-
-
 	void generateCage2();
 	std::vector<glm::vec3> generatePointSetP2(MeshObject &out_obb, MeshObject &out_pointSetP);
 
@@ -122,18 +109,13 @@ private:
 	glm::vec3 m_eigenV1 = glm::vec3(0.0f, 0.0f, 0.0f);
 	glm::vec3 m_eigenV2 = glm::vec3(0.0f, 0.0f, 0.0f);
 	glm::vec3 m_eigenV3 = glm::vec3(0.0f, 0.0f, 0.0f);
-
 	float m_expandedMinScalarAlongV1 = 0.0f;
 	float m_expandedMinScalarAlongV2 = 0.0f;
 	float m_expandedMinScalarAlongV3 = 0.0f;
 
-
-
 	std::vector<std::vector<std::vector<unsigned int>>> generateOBBSpace(std::vector<glm::vec3> const& pointSetP);
 	MeshTree generateMeshTree(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int minV1Index, unsigned int maxV1Index, unsigned int minV2Index, unsigned int maxV2Index, unsigned int minV3Index, unsigned int maxV3Index, unsigned int const recursiveDepth);
-
 	MeshTree terminateMeshTree(unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index);
-
 
 	unsigned int m_maxRecursiveDepth = 100;
 	float m_eta = 1.1f; // for t1
@@ -144,5 +126,4 @@ private:
 	int searchForSpliceIndexOverV1(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2);
 	int searchForSpliceIndexOverV2(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2);
 	int searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsigned int>>> const& obbSpace, unsigned int const minV1Index, unsigned int const maxV1Index, unsigned int const minV2Index, unsigned int const maxV2Index, unsigned int const minV3Index, unsigned int const maxV3Index, float const t2);
-
 };
