@@ -444,6 +444,18 @@ void Program::drawUI() {
 
 		if (nullptr != m_model) {
 			if (ImGui::Button("CLEAR MODEL")) clearModel();
+
+			ImGui::SameLine();
+			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
+			unsigned int const maxFileNameLength = 256;
+			char filename[maxFileNameLength] = "";
+			ImGuiInputTextFlags const flags = ImGuiInputTextFlags_EnterReturnsTrue;
+			ImGui::Text("EXPORT MODEL");
+			ImGui::Text(".../models/exports/");
+			ImGui::SameLine();
+			if (ImGui::InputText(".obj##2", filename, IM_ARRAYSIZE(filename), flags)) {
+				exportModelOBJ("models/exports/" + std::string(filename) + ".obj");
+			}
 		} else {
 			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
 			unsigned int const maxFileNameLength = 256;
@@ -460,6 +472,18 @@ void Program::drawUI() {
 
 		if (nullptr != m_cage) {
 			if (ImGui::Button("CLEAR CAGE")) clearCage();
+
+			ImGui::SameLine();
+			//NOTE: it seems that imgui only allows typing in the text box upto maxFileNameLength - 1 chars.
+			unsigned int const maxFileNameLength = 256;
+			char filename[maxFileNameLength] = "";
+			ImGuiInputTextFlags const flags = ImGuiInputTextFlags_EnterReturnsTrue;
+			ImGui::Text("EXPORT CAGE");
+			ImGui::Text(".../models/exports/");
+			ImGui::SameLine();
+			if (ImGui::InputText(".obj##3", filename, IM_ARRAYSIZE(filename), flags)) {
+				exportCageOBJ("models/exports/" + std::string(filename) + ".obj");
+			}
 		} else {
 			if (nullptr != m_model) {
 				ImGui::PushItemWidth(200.0f);
@@ -2353,4 +2377,170 @@ int Program::searchForSpliceIndexOverV3(std::vector<std::vector<std::vector<unsi
 	}
 
 	return spliceIndex;
+}
+
+
+
+bool Program::exportModelOBJ(std::string const& filePath) const {
+	if (nullptr == m_model) return false;
+
+	// open file for writing only if it doesn't exist yet
+	FILE *fp = fopen(filePath.c_str(), "wx");
+	if (NULL == fp) return false;
+
+
+	//NOTE: verts/ (per-vertex) normals will always be present
+	//NOTE: if UVS aren't present then vec3.y will be -1
+	std::vector<glm::vec3> uniqueVerts;
+	std::vector<glm::vec2> uniqueUVS;
+	std::vector<glm::vec3> uniqueNormals;
+	std::vector<glm::vec3> faces; // 3 3-tuples in a row constitutes a tri-face
+
+	//NOTE: i'll increment the face indices since OBJ require 1-indexing 
+
+	// get data into good formats...
+	for (unsigned int f = 0; f < m_model->drawFaces.size(); ++f) {
+		unsigned int const raw_index = m_model->drawFaces.at(f);
+		unsigned int v_index = -1;
+		unsigned int vt_index = -1;
+		unsigned int vn_index = -1;
+
+		auto it1 = std::find(uniqueVerts.begin(), uniqueVerts.end(), m_model->drawVerts.at(raw_index));
+		if (uniqueVerts.end() != it1) { // already stored
+			unsigned int const index = it1 - uniqueVerts.begin();
+			v_index = index + 1;
+		}
+		else { // new vert 
+			uniqueVerts.push_back(m_model->drawVerts.at(raw_index));
+			v_index = uniqueVerts.size();
+		}
+
+		// if the model has uvs...
+		if (m_model->uvs.size() > 0) {
+			auto it2 = std::find(uniqueUVS.begin(), uniqueUVS.end(), m_model->uvs.at(raw_index));
+			if (uniqueUVS.end() != it2) { // already stored
+				unsigned int const index = it2 - uniqueUVS.begin();
+				vt_index = index + 1;
+			}
+			else { // new uv 
+				uniqueUVS.push_back(m_model->uvs.at(raw_index));
+				vt_index = uniqueUVS.size();
+			}
+		}
+
+		auto it3 = std::find(uniqueNormals.begin(), uniqueNormals.end(), m_model->normals.at(raw_index));
+		if (uniqueNormals.end() != it3) { // already stored
+			unsigned int const index = it3 - uniqueNormals.begin();
+			vn_index = index + 1;
+		}
+		else { // new normal 
+			uniqueNormals.push_back(m_model->normals.at(raw_index));
+			vn_index = uniqueNormals.size();
+		}
+
+		
+		faces.push_back(glm::vec3(v_index, vt_index, vn_index));
+	}
+
+	// write to file...
+	fprintf(fp, "# Exported from Cage-Tool\n");
+
+	fprintf(fp, "\n\n# -----VERTS-----\n");
+	for (glm::vec3 const& v : uniqueVerts) {
+		fprintf(fp, "\nv %f %f %f", v.x, v.y, v.z);
+	}
+
+	if (m_model->uvs.size() > 0) {
+		fprintf(fp, "\n\n# -----UVS-----\n");
+		for (glm::vec2 const& uv : uniqueUVS) {
+			fprintf(fp, "\nvt %f %f", uv.x, uv.y);
+		}
+	}
+
+	fprintf(fp, "\n\n# -----NORMALS-----\n");
+	for (glm::vec3 const& normal : uniqueNormals) {
+		fprintf(fp, "\nvn %f %f %f", normal.x, normal.y, normal.z);
+	}
+
+	fprintf(fp, "\n\n# -----FACES-----\n");
+	if (m_model->uvs.size() > 0) {
+		for (unsigned int f = 0; f < faces.size(); f += 3) {
+			glm::vec3 const& p1 = faces.at(f);
+			glm::vec3 const& p2 = faces.at(f+1);
+			glm::vec3 const& p3 = faces.at(f+2);
+
+			fprintf(fp, "\nf %u/%u/%u %u/%u/%u %u/%u/%u", (unsigned int)p1.x, (unsigned int)p1.y, (unsigned int)p1.z, (unsigned int)p2.x, (unsigned int)p2.y, (unsigned int)p2.z, (unsigned int)p3.x, (unsigned int)p3.y, (unsigned int)p3.z);
+		}
+	}
+	else {
+		for (unsigned int f = 0; f < faces.size(); f += 3) {
+			glm::vec3 const& p1 = faces.at(f);
+			glm::vec3 const& p2 = faces.at(f + 1);
+			glm::vec3 const& p3 = faces.at(f + 2);
+
+			fprintf(fp, "\nf %u//%u %u//%u %u//%u", (unsigned int)p1.x, (unsigned int)p1.z, (unsigned int)p2.x, (unsigned int)p2.z, (unsigned int)p3.x, (unsigned int)p3.z);
+		}
+	}
+
+	fclose(fp);
+
+	return true;
+}
+
+
+
+bool Program::exportCageOBJ(std::string const& filePath) const {
+	if (nullptr == m_cage) return false;
+
+	// open file for writing only if it doesn't exist yet
+	FILE *fp = fopen(filePath.c_str(), "wx");
+	if (NULL == fp) return false;
+
+	//NOTE: only verts will be present
+
+	std::vector<glm::vec3> uniqueVerts;
+	std::vector<glm::vec3> faces; // 3 3-tuples in a row constitutes a tri-face
+
+	//NOTE: i'll increment the face indices since OBJ require 1-indexing 
+
+	// get data into good formats...
+	for (unsigned int f = 0; f < m_cage->drawFaces.size(); ++f) {
+		unsigned int const raw_index = m_cage->drawFaces.at(f);
+		unsigned int v_index = -1;
+		unsigned int vt_index = -1;
+		unsigned int vn_index = -1;
+
+		auto it1 = std::find(uniqueVerts.begin(), uniqueVerts.end(), m_cage->drawVerts.at(raw_index));
+		if (uniqueVerts.end() != it1) { // already stored
+			unsigned int const index = it1 - uniqueVerts.begin();
+			v_index = index + 1;
+		}
+		else { // new vert 
+			uniqueVerts.push_back(m_cage->drawVerts.at(raw_index));
+			v_index = uniqueVerts.size();
+		}
+
+		faces.push_back(glm::vec3(v_index, vt_index, vn_index));
+	}
+
+	// write to file...
+	fprintf(fp, "# Exported from Cage-Tool\n");
+
+	fprintf(fp, "\n\n# -----VERTS-----\n");
+	for (glm::vec3 const& v : uniqueVerts) {
+		fprintf(fp, "\nv %f %f %f", v.x, v.y, v.z);
+	}
+
+	fprintf(fp, "\n\n# -----FACES-----\n");
+	for (unsigned int f = 0; f < faces.size(); f += 3) {
+		glm::vec3 const& p1 = faces.at(f);
+		glm::vec3 const& p2 = faces.at(f + 1);
+		glm::vec3 const& p3 = faces.at(f + 2);
+
+		fprintf(fp, "\nf %u %u %u", (unsigned int)p1.x, (unsigned int)p2.x, (unsigned int)p3.x);
+	}
+
+	fclose(fp);
+
+	return true;
 }

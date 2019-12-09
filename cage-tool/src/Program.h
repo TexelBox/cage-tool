@@ -133,4 +133,9 @@ private:
 
 	// scalar for translating cage verts
 	float m_deltaMove = 1.0f;
+
+
+
+	bool exportModelOBJ(std::string const& filePath) const;
+	bool exportCageOBJ(std::string const& filePath) const;
 };
