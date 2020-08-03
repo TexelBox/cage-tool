@@ -1,7 +1,26 @@
 # CageTool
 C++/OpenGL tool for cage-based deformation, including functionality for cage generation. Originally developed as a fall 2019 term project for CPSC589 @ University of Calgary.
 
+---
+
+### Screenshots
+![screenshot-1](docs/assets/images/screenshots/screenshot-1.png)
+
+![screenshot-2](docs/assets/images/screenshots/screenshot-2.png)
+
+![screenshot-3](docs/assets/images/screenshots/screenshot-3.png)
+
+![screenshot-4](docs/assets/images/screenshots/screenshot-4.png)
+
+![screenshot-5](docs/assets/images/screenshots/screenshot-5.png)
+
+![screenshot-6](docs/assets/images/screenshots/screenshot-6.png)
+
+---
+
 ## [WIP]
+
+---
 
 ### CONTROLS/FEATURES:
 - LEFT CLICK + DRAG === pan the spherical camera
@@ -22,6 +41,8 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - CAGE DEFORMATION (MVC) - once a model + cage pair are loaded in the scene, you can press the COMPUTE CAGE WEIGHTS button to compute MVC weights of the cage vertices on the model vertices. You can then either use any of the 3 buttons (SELECT/UNSELECT/TOGGLE ALL VERTS) or individually RIGHT-CLICK on the black cage-verts (turn them YELLOW for SELECTED) and then deform the cage (and consequently the model) by translating the selected cage verts with the keys Q, W, E, A, S, D (1 key per direction on 3 axes).
 - NOTE: this cage movement with Q, W, E, A, S, D can also be used to just alter a cage if wanted. To do this, just make sure to CLEAR CAGE WEIGHTS first, or CLEAR MODEL.
 - NOTE: there is a slider for the "selected cage vert translation amount" (can also be CTRL+LEFT CLICKED) to allow finer control on how many units the cage verts move by key inputs. 
+
+---
 
 ##### OPTIONAL/FUTURE FEATURES:
 -
@@ -46,9 +67,13 @@ C++/OpenGL tool for cage-based deformation, including functionality for cage gen
 - port to macOS?
 - improve this README (build instructions, controls, assumptions, etc.)
 
+---
+
 ### REFERENCES
 - boilerplate provided from https://pages.cpsc.ucalgary.ca/~mmactavi/589/
 - inspiration from https://github.com/cordafab/Cagelab2018
 - source of a potential cage-generation technique - http://www.cad.zju.edu.cn/home/hwlin/pdf_files/Automatic-cage-generation-by-improved-OBBs-for-mesh-deformation.pdf
 - mean-value-coordinate weight computing algorithm sourced from https://www.cse.wustl.edu/~taoju/research/meanvalue.pdf
 - very useful resource helping with voxelization - http://blog.wolfire.com/2009/11/Triangle-mesh-voxelization
+
+---
