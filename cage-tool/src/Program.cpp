@@ -286,11 +286,11 @@ void Program::drawUI() {
 			if (ImGui::Button("TOGGLE XZ-PLANE (GREEN)")) m_xzPlane->m_isVisible = !m_xzPlane->m_isVisible;
 			ImGui::SameLine();
 		}
-		if (nullptr != m_yzPlane) {
+		if (nullptr != m_xyPlane) {
 			if (ImGui::Button("TOGGLE XY-PLANE (BLUE)")) m_xyPlane->m_isVisible = !m_xyPlane->m_isVisible;
 			ImGui::SameLine();
 		}
-		if (nullptr != m_yzPlane || nullptr != m_xzPlane || nullptr != m_yzPlane) {
+		if (nullptr != m_yzPlane || nullptr != m_xzPlane || nullptr != m_xyPlane) {
 			ImGui::Text("	note: grid spacing is 10 units");
 			ImGui::Separator();
 		}
